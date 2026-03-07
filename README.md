@@ -50,6 +50,17 @@ MCBOT/
 
 ---
 
+## Prerequisites (Debian / Raspberry Pi OS)
+
+Before you begin, make sure `python3-venv` and `python3-pip` are installed:
+
+```bash
+sudo apt update
+sudo apt install -y python3-venv python3-pip
+```
+
+---
+
 ## Quick Start
 
 ### 1. Run the setup wizard
@@ -85,6 +96,9 @@ source .venv/bin/activate     # Windows: .venv\Scripts\activate
 
 # Install dependencies
 pip install -r requirements.txt
+
+# Verify that python-dotenv installed correctly
+python -c "from dotenv import load_dotenv; print('python-dotenv OK')"
 
 # Copy and edit the configuration
 cp .env.example .env
