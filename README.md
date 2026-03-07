@@ -54,110 +54,115 @@ MCBOT/
 
 ---
 
-## Prerequisites (Debian / Raspberry Pi OS)
+## Complete Setup Guide
 
-Before you begin, make sure `python3-venv` and `python3-pip` are installed:
+Follow these steps **in order** to get the bot running from scratch.
+
+### Step 1 – Install system packages
+
+On Raspberry Pi OS / Debian, install the required system packages first:
 
 ```bash
 sudo apt update
-sudo apt install -y python3-venv python3-pip
+sudo apt install -y python3-venv python3-pip git
 ```
 
-### Python dependencies
+### Step 2 – Clone the repository
 
-| Package | Required by | Notes |
-|---|---|---|
-| `meshcore>=2.0.0` | `cyoa_bot.py`, `mcbot_monitor.py` | MeshCore serial protocol library |
-| `groq>=1.0.0` | `story_engine.py` | Groq cloud LLM API client |
-| `python-dotenv>=1.0.0` | `cyoa_bot.py`, `mcbot_monitor.py` | `.env` file loading |
-| `pyserial>=3.5` | `meshcore_radio_config.py` | Direct USB serial access for radio config |
+```bash
+git clone https://github.com/hostyorkshire/MCBOT.git
+cd MCBOT
+```
 
-`pyserial` is used only by `meshcore_radio_config.py`.  All other scripts use
-the `meshcore` library for serial communication.  `./setup.sh` installs all
-dependencies automatically.
+> All subsequent commands in this guide assume you are inside the `MCBOT`
+> directory. Replace `/home/pi/MCBOT` in any examples with the full path
+> shown by `pwd` if your username is different.
 
----
+### Step 3 – Add your user to the `dialout` group
 
-## Quick Start
+This grants your user read/write access to USB serial devices
+(`/dev/ttyUSB0`, `/dev/ttyACM0`, etc.) without needing `sudo` each time.
 
-### 1. Run the setup wizard
+```bash
+sudo usermod -a -G dialout $USER
+newgrp dialout      # apply immediately without logging out
+```
+
+> Verify it worked: `groups` should list `dialout`.
+> A full logout/login is needed for the change to persist across reboots.
+
+### Step 4 – Run the setup wizard
+
+The wizard creates the Python virtual environment, installs all dependencies,
+prompts for your configuration values, and optionally installs the systemd
+service.
 
 ```bash
 chmod +x setup.sh
-./setup.sh
+bash setup.sh
 ```
+
+> **To also install the systemd service in the same run**, the script needs
+> root for that step.  When it asks *"Re-run now with sudo?"* answer `y` and
+> it will re-exec itself automatically.  Alternatively, start the whole wizard
+> with `sudo` from the beginning (use the full path to avoid the
+> `sudo: ./setup.sh: command not found` pitfall):
+>
+> ```bash
+> sudo bash "$(pwd)/setup.sh"
+> ```
 
 The wizard will:
 
-- Create a Python virtual environment at `.venv/` (reused on re-runs).
-- Install all dependencies from `requirements.txt` and `requirements-dev.txt`
-  (includes `psutil` for the monitor) into the venv using `.venv/bin/pip`.
-- Prompt for all configuration values and write `.env`.
-- Optionally install and enable the `mcbot.service` systemd service so the
-  bot **starts automatically on every reboot** (Raspberry Pi / Linux only).
-  When prompted *"Would you like to install and enable the mcbot systemd
-  service?"* answer `y` and the script will:
-  - Write `/etc/systemd/system/mcbot.service` with the correct paths and user
-  - Configure `ExecStart` to use `.venv/bin/python` so all dependencies are
-    available when the service starts
-  - Run `systemctl daemon-reload` and `systemctl enable --now mcbot.service`
-- Prompt *"Would you like to start the mcbot monitor now?"*:
-  - Answer `y` to launch `mcbot_monitor.py --info` immediately using the venv
-    interpreter (no activation required).
-  - Answer `n` (or press Enter) and the wizard will print example commands so
-    you can run the monitor later.
+- Create a Python virtual environment at `.venv/` inside the repo (reused on
+  re-runs).
+- Install all Python dependencies into that venv:
+  - `requirements.txt` – `meshcore`, `groq`, `python-dotenv`, `pyserial`
+  - `requirements-dev.txt` – `pytest`, `pytest-asyncio`, `psutil`
+- Prompt for each configuration value and write `.env`.
+- Optionally write `/etc/systemd/system/mcbot.service` with the correct paths
+  and user, then run `systemctl daemon-reload` and
+  `systemctl enable --now mcbot.service`.
+- Optionally launch `mcbot_monitor.py --info` to verify the setup.
 
-> **Note:** Systemd installation requires root. Either run
-> `sudo bash "$(pwd)/setup.sh"` from the repo directory from the start, or
-> simply answer `y` when the script prompts *"Re-run now with sudo?"* and it
-> will re-exec itself automatically.
->
-> **Why not `sudo ./setup.sh`?** `sudo` resets `PATH` and does not look in the
-> current directory, so `sudo ./setup.sh` returns *"command not found"* on many
-> systems. Using the full path (`sudo bash /abs/path/to/setup.sh`) avoids this.
+### Step 5 – (Manual alternative to the wizard)
 
-**Alternative – manual setup:**
+Skip this step if you ran `setup.sh`. Use this path if you prefer to set
+everything up by hand:
 
 ```bash
-# Create and activate the virtual environment
+# 1. Create the virtual environment
 python3 -m venv .venv
-source .venv/bin/activate     # Windows: .venv\Scripts\activate
 
-# Install dependencies
+# 2. Install all dependencies into the venv
+.venv/bin/pip install --upgrade pip
 .venv/bin/pip install -r requirements.txt
 .venv/bin/pip install -r requirements-dev.txt
 
-# Verify that python-dotenv installed correctly
+# 3. Verify python-dotenv installed correctly
 .venv/bin/python -c "from dotenv import load_dotenv; print('python-dotenv OK')"
 
-# Copy and edit the configuration
+# 4. Create your .env configuration file
 cp .env.example .env
+nano .env        # or any text editor – fill in GROQ_API_KEY and SERIAL_PORT at minimum
 ```
 
-Edit `.env` and fill in at minimum:
+Minimum required values in `.env`:
 
 | Variable | Description |
 |---|---|
 | `GROQ_API_KEY` | Free API key from [console.groq.com](https://console.groq.com) |
-| `SERIAL_PORT` | USB serial port, e.g. `/dev/ttyUSB0` |
+| `SERIAL_PORT` | USB serial device path, e.g. `/dev/ttyUSB0` |
 
-### 2. Add yourself to the `dialout` group (Linux)
-
-```bash
-sudo usermod -a -G dialout $USER
-newgrp dialout          # apply without logging out
-```
-
-### 3. Run the bot
+### Step 6 – Run the bot
 
 ```bash
-# Via the venv Python directly (no activation needed)
+# Run directly using the venv Python (no activation needed)
 .venv/bin/python cyoa_bot.py
-
-# Or activate the venv first
-source .venv/bin/activate
-python cyoa_bot.py
 ```
+
+Press **Ctrl+C** to stop. To run in the background with automatic restart on
+reboot, see the [systemd service section](#running-as-a-systemd-service-linux--auto-start-on-reboot) below.
 
 ---
 
@@ -172,37 +177,63 @@ Send a direct message to the bot node from any MeshCore client:
 | `restart` / `reset` | Reset your current story and start fresh |
 | `help` / `?` | Show command reference |
 
-Any other text while a story is in progress is treated as free-text input to
-the story engine.
+Commands are also accepted with a leading `/` or `!` prefix (e.g. `/start`,
+`!help`). Any other text while a story is active is treated as free-text input
+to the story engine.
 
 ---
 
 ## Configuration Reference
 
-All settings are loaded from environment variables (`.env` file):
+All settings are loaded from the `.env` file in the project directory:
 
 | Variable | Default | Description |
 |---|---|---|
 | `GROQ_API_KEY` | *(required)* | Groq API key |
-| `GROQ_MODEL` | `llama3-8b-8192` | Model name (free-tier: llama3-8b-8192, llama3-70b-8192, mixtral-8x7b-32768) |
+| `GROQ_MODEL` | `llama3-8b-8192` | Model name (free-tier: `llama3-8b-8192`, `llama3-70b-8192`, `mixtral-8x7b-32768`) |
 | `SERIAL_PORT` | `/dev/ttyUSB0` | Serial device path |
 | `BAUD_RATE` | `115200` | Serial baud rate |
-| `MAX_CHUNK_SIZE` | `200` | Max characters per LoRa message |
+| `MAX_CHUNK_SIZE` | `200` | Max characters per LoRa message chunk |
 | `CHUNK_DELAY` | `2.0` | Seconds between consecutive message chunks |
 | `MAX_HISTORY` | `10` | Max conversation turns kept per user (RAM limit) |
+
+Full `.env` example (also in `.env.example`):
+
+```ini
+GROQ_API_KEY=gsk_xxxxxxxxxxxxxxxxxxxxxxxxxxxx
+GROQ_MODEL=llama3-8b-8192
+SERIAL_PORT=/dev/ttyUSB0
+BAUD_RATE=115200
+MAX_CHUNK_SIZE=200
+CHUNK_DELAY=2.0
+MAX_HISTORY=10
+```
+
+---
+
+## Python Dependencies
+
+| Package | Version | Required by |
+|---|---|---|
+| `meshcore` | `>=2.0.0` | `cyoa_bot.py`, `mcbot_monitor.py` |
+| `groq` | `>=1.0.0` | `story_engine.py` |
+| `python-dotenv` | `>=1.0.0` | `cyoa_bot.py`, `mcbot_monitor.py` |
+| `pyserial` | `>=3.5` | `meshcore_radio_config.py` |
+| `pytest` | `>=8.0.0` | tests |
+| `pytest-asyncio` | `>=0.24.0` | tests |
+| `psutil` | `>=5.9.0` | `mcbot_monitor.py` |
+
+`setup.sh` installs all of the above automatically into `.venv/`.
 
 ---
 
 ## Running Tests
 
 ```bash
-# Dev dependencies are already installed by ./setup.sh; just run tests:
+# Dev dependencies are already installed by setup.sh; just run:
 .venv/bin/python -m pytest
-```
 
-Or, if you set up manually:
-
-```bash
+# If you set up manually and haven't installed dev dependencies yet:
 .venv/bin/pip install -r requirements-dev.txt
 .venv/bin/python -m pytest
 ```
@@ -215,28 +246,19 @@ Or, if you set up manually:
 issues – especially useful when the LoRa radio receives messages but the bot
 does not respond.
 
-### Prerequisites
-
-Install the dev dependencies (includes `psutil` for system metrics):
-
-```bash
-.venv/bin/pip install -r requirements-dev.txt
-```
-
-> **Note:** `mcbot_monitor.py` can run without `python-dotenv` installed —
-> it will skip loading `.env` and print a warning, but all other functionality
-> (system info, serial listing, etc.) will still work.  For full functionality,
-> run it via `.venv/bin/python mcbot_monitor.py` or install all dependencies
-> with `.venv/bin/pip install -r requirements.txt`.
+> **Note:** If you used `setup.sh`, all dependencies (including `psutil`) are
+> already installed in `.venv` — no extra step needed.  If you set up
+> manually, install dev dependencies first:
 >
-> If you used `./setup.sh`, all dependencies (including `psutil`) are already
-> installed in `.venv` — no extra step needed.
+> ```bash
+> .venv/bin/pip install -r requirements-dev.txt
+> ```
 
 ### Available modes
 
 | Flag | Description |
 |---|---|
-| `--info` | Print system info (CPU, RAM, disk, uptime, Python/platform) and environment summary (GROQ_API_KEY masked). Also tests Groq API reachability. |
+| `--info` | Print system info (CPU, RAM, disk, uptime, Python/platform) and environment summary (`GROQ_API_KEY` masked). Also tests Groq API reachability. |
 | `--list-serial` | List all `/dev/ttyUSB*`, `/dev/ttyACM*`, `/dev/ttyS*` devices with permissions. Highlights whether the configured `SERIAL_PORT` is present and accessible. |
 | `--listen` | Connect to MeshCore and print **all** incoming events with timestamps and payloads. Press Ctrl+C or let `--duration` expire to stop. |
 | `--send-test PUBKEY_PREFIX` | Connect to MeshCore and send a single test message to the specified pubkey prefix. |
@@ -251,20 +273,20 @@ Install the dev dependencies (includes `psutil` for system metrics):
 # 1. Check system health and environment (safe, no hardware required)
 .venv/bin/python mcbot_monitor.py --info
 
-# 2. See which serial devices are present and if current user can access them
+# 2. List serial devices and check if your user can access them
 .venv/bin/python mcbot_monitor.py --list-serial
 
-# 3. Connect and watch for all incoming events for 60 seconds
+# 3. Watch all incoming events for 60 seconds
 #    (stop cyoa_bot.py first – only one process can hold the serial port)
 .venv/bin/python mcbot_monitor.py --listen --duration 60
 
-# 4. Watch specifically for start commands with a clear banner
+# 4. Watch specifically for start commands with a highlighted banner
 .venv/bin/python mcbot_monitor.py --listen --duration 120 --watch-start
 
 # 5. Show raw JSON payloads for every event (useful for firmware debugging)
 .venv/bin/python mcbot_monitor.py --listen --duration 60 --debug
 
-# 6. Send a one-off test message to confirm outbound path works
+# 6. Send a one-off test message to confirm the outbound path works
 .venv/bin/python mcbot_monitor.py --send-test <PUBKEY_PREFIX> --text "hello from monitor"
 
 # 7. Run without flags to get both help text and --info output
@@ -274,7 +296,7 @@ Install the dev dependencies (includes `psutil` for system metrics):
 ### Verifying that a `start` command is received
 
 Use this workflow to confirm the full path from radio to bot command handler
-**without** modifying any code and without needing to restart the bot:
+**without** modifying any code:
 
 1. **Stop the bot** so the monitor can open the serial port:
 
@@ -282,8 +304,7 @@ Use this workflow to confirm the full path from radio to bot command handler
    # If running as a systemd service:
    sudo systemctl stop mcbot
 
-   # If running directly:
-   # Press Ctrl+C in the terminal where cyoa_bot.py is running.
+   # If running directly: press Ctrl+C in the terminal running cyoa_bot.py.
    ```
 
 2. **Start the monitor** in watch-start mode:
@@ -308,40 +329,45 @@ Use this workflow to confirm the full path from radio to bot command handler
    `/` or `!` prefix such as `/start`).
 
 5. If the `CONTACT_MSG_RECV` event appears but the bot does **not** respond,
-   check the bot's log output (`sudo journalctl -u mcbot -f`) for lines
-   containing `"Start command from"` — this INFO-level log line is emitted
+   check the bot logs:
+
+   ```bash
+   sudo journalctl -u mcbot -f
+   ```
+
+   Look for lines containing `"Start command from"` — this is logged
    immediately when the bot receives a recognised start command.
 
 6. If **no** `CONTACT_MSG_RECV` event appears, the problem is at the radio or
-   serial layer.  Re-check `SERIAL_PORT`, the `dialout` group, and whether the
-   MeshCore firmware is running on the device.
+   serial layer. Re-check `SERIAL_PORT`, the `dialout` group membership, and
+   whether the MeshCore firmware is running on the device.
 
 ### What to look for on a Raspberry Pi
 
 **Bot not responding at all?**
 
-1. Run `--info` – check that `GROQ_API_KEY` is set and the Groq API is
-   reachable.  If not, the bot will refuse to start.
-2. Run `--list-serial` – confirm the device listed under `SERIAL_PORT` exists
-   and your user has read/write permission (must be in the `dialout` group).
-3. Stop `cyoa_bot.py` (or the `mcbot` systemd service), then run
+1. Run `--info` and confirm `GROQ_API_KEY` is set and the Groq API is
+   reachable. If not, the bot will refuse to start.
+2. Run `--list-serial` and confirm the device matches `SERIAL_PORT` and your
+   user has read/write permission (must be in the `dialout` group – see
+   [Step 3](#step-3--add-your-user-to-the-dialout-group)).
+3. Stop the bot or service, then run
    `--listen --watch-start --duration 60` while sending a `start` message
-   from a LoRa node.
-   If the `★★★ START COMMAND DETECTED ★★★` banner appears, the hardware path
-   is working; restart the bot and check its logs.  If **no** events appear,
-   the problem is at the serial/radio layer.
+   from a LoRa node. If the `★★★` banner appears, the hardware path is
+   working — restart the bot and check its logs. If **no** events appear at
+   all, the problem is at the serial/radio layer.
 
 **Bot responds sometimes but not others?**
 
-- Watch the event summary printed after `--listen` finishes.  Look for
-  `DISCONNECTED` events or a high rate of `ERROR` events that might indicate
-  an unstable serial connection.
+Watch the event summary printed after `--listen` finishes. Look for
+`DISCONNECTED` events or a high rate of `ERROR` events, which can indicate
+an unstable serial connection.
 
 **Permission denied when opening the serial port?**
 
 ```bash
 sudo usermod -a -G dialout $USER
-newgrp dialout   # apply without logging out
+newgrp dialout      # apply immediately; log out and back in to make it permanent
 ```
 
 ---
@@ -349,35 +375,30 @@ newgrp dialout   # apply without logging out
 ## Radio Configuration Tool (`meshcore_radio_config.py`)
 
 `meshcore_radio_config.py` is a standalone serial configuration tool for
-setting up a MeshCore LoRa radio.  It uses `pyserial` for direct USB serial
-access and is designed for **UK/EU 868 MHz band** operation by default.
+setting up a MeshCore LoRa radio. It uses `pyserial` for direct USB serial
+access and targets the **UK/EU 868 MHz band** by default.
 
 ### Prerequisites
 
-`pyserial` is installed automatically by `./setup.sh` or manually:
+`pyserial` is installed automatically by `setup.sh`. To install manually:
 
 ```bash
 .venv/bin/pip install -r requirements.txt
 ```
 
-Your user must also be in the `dialout` group to access `/dev/ttyUSB*` and
-`/dev/ttyACM*` devices:
-
-```bash
-sudo usermod -a -G dialout $USER
-newgrp dialout   # apply without logging out
-```
+Your user must also be in the `dialout` group (see
+[Step 3](#step-3--add-your-user-to-the-dialout-group) above).
 
 ### Usage
 
 ```bash
-# Interactive menu (recommended) – select port from list, then configure
+# Interactive menu (recommended) – prompts to select port, then configure
 .venv/bin/python meshcore_radio_config.py
 
 # Specify the serial port up front (skip the port-selection prompt)
 .venv/bin/python meshcore_radio_config.py --port /dev/ttyUSB0
 
-# Non-interactive: apply settings and reboot in one command
+# Non-interactive: set frequency, name, location, and reboot in one command
 .venv/bin/python meshcore_radio_config.py --port /dev/ttyUSB0 \
     --freq 869.525 --name "MyNode" --lat 53.8 --lon -1.5 --reboot
 
@@ -406,7 +427,7 @@ The radio's **public key** (used to address it in the MeshCore mesh) is
 automatically shown:
 
 - **On connect** – immediately after opening the serial port.
-- **In the menu** – via option 5 "Show radio public key".
+- **In the menu** – via option `5` "Show radio public key".
 - **After non-interactive apply** – printed before the port is closed.
 
 ### CLI flags
@@ -426,54 +447,93 @@ automatically shown:
 
 ## Running as a systemd Service (Linux / Auto-start on Reboot)
 
+Running MCBOT as a systemd service means it starts automatically when the
+Raspberry Pi boots and restarts itself if it crashes.
+
 ### Automated installation (recommended)
 
-Re-run the setup wizard and answer `y` to the service prompt.  The simplest
-way is to let the script re-exec itself – when the wizard asks
-*"Re-run now with sudo?"* just answer `y`.  Alternatively, pass the full path
-to avoid the `sudo: ./setup.sh: command not found` pitfall:
+The setup wizard handles everything when run with `sudo`. Use the full path to
+avoid the `sudo: ./setup.sh: command not found` pitfall:
 
 ```bash
 sudo bash "$(pwd)/setup.sh"
 ```
 
-The script writes `/etc/systemd/system/mcbot.service` (using the paths and
-user detected at install time), reloads the systemd daemon, and enables the
-service so it starts on every boot.
+When prompted *"Would you like to install and enable the mcbot systemd
+service?"*, answer `y`.  The script will:
+
+1. Detect your username (`$SUDO_USER`) and the repo's absolute path.
+2. Write `/etc/systemd/system/mcbot.service` with the exact paths filled in.
+3. Run `systemctl daemon-reload && systemctl enable --now mcbot.service`.
+
+The service file written will look like this (using `/home/pi/MCBOT` as the
+example path — your actual paths are substituted automatically):
+
+```ini
+[Unit]
+Description=MeshCore CYOA Story Bot
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/MCBOT
+EnvironmentFile=/home/pi/MCBOT/.env
+ExecStart=/home/pi/MCBOT/.venv/bin/python /home/pi/MCBOT/cyoa_bot.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+```
 
 ### Manual installation
 
-1. Create the virtual environment and install dependencies (if not already done
-   by `./setup.sh`):
+Use this if you prefer not to use the wizard.
 
-```bash
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-```
+1. **Create the venv and install dependencies** (skip if already done):
 
-2. Copy the template and substitute the placeholder values:
+   ```bash
+   python3 -m venv .venv
+   .venv/bin/pip install -r requirements.txt
+   ```
 
-```bash
-sudo cp mcbot.service /etc/systemd/system/mcbot.service
-sudo nano /etc/systemd/system/mcbot.service   # fill in User, WorkingDirectory, ExecStart
-```
+2. **Copy the service template** and edit it with your actual paths:
 
-The `mcbot.service` file in this repository contains the full template with
-inline comments explaining each placeholder. Key fields to update:
+   ```bash
+   sudo cp mcbot.service /etc/systemd/system/mcbot.service
+   sudo nano /etc/systemd/system/mcbot.service
+   ```
 
-| Field | Example value |
-|---|---|
-| `User` | `pi` (the OS user that owns the repository) |
-| `WorkingDirectory` | `/home/pi/MCBOT` |
-| `EnvironmentFile` | `/home/pi/MCBOT/.env` |
-| `ExecStart` | `/home/pi/MCBOT/.venv/bin/python /home/pi/MCBOT/cyoa_bot.py` |
+   Update the following four lines (replace `pi` and `/home/pi/MCBOT` with
+   your actual username and repo path):
 
-3. Enable and start:
+   ```ini
+   User=pi
+   WorkingDirectory=/home/pi/MCBOT
+   EnvironmentFile=/home/pi/MCBOT/.env
+   ExecStart=/home/pi/MCBOT/.venv/bin/python /home/pi/MCBOT/cyoa_bot.py
+   ```
 
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now mcbot
-```
+   To find the correct absolute path, run `pwd` from inside the `MCBOT`
+   directory.
+
+3. **Enable and start the service:**
+
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now mcbot.service
+   ```
+
+4. **Verify it is running:**
+
+   ```bash
+   sudo systemctl status mcbot
+   ```
+
+   You should see `active (running)` and `enabled`.
 
 ### Managing the service
 
@@ -492,11 +552,11 @@ sudo systemctl enable --now mcbot
 
 ```bash
 sudo reboot
-# after the Pi comes back up:
+# After the Pi comes back up:
 sudo systemctl status mcbot
 ```
 
-The service status should show `active (running)` and `enabled`.
+The status should show `active (running)` and `enabled`.
 
 ---
 
