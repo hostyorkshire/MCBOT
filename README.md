@@ -34,9 +34,11 @@ serial.  Story text is generated in real time by the free tier of the
 ```
 MCBOT/
 ├── cyoa_bot.py        # Main entry point – MeshCore event loop
+├── mcbot_monitor.py   # Diagnostic / monitoring helper (see below)
 ├── story_engine.py    # Groq LLM session management
 ├── utils.py           # Message chunking helpers
 ├── requirements.txt   # Python dependencies
+├── requirements-dev.txt  # Dev/test dependencies (includes psutil)
 ├── .env.example       # Configuration template
 ├── setup.sh           # Interactive setup wizard (.env generator + systemd installer)
 ├── mcbot.service      # Systemd unit file template (installed by setup.sh)
@@ -163,6 +165,81 @@ Or without activating:
 ```bash
 .venv/bin/pip install -r requirements-dev.txt
 .venv/bin/python -m pytest
+```
+
+---
+
+## Diagnostics and Monitoring (`mcbot_monitor.py`)
+
+`mcbot_monitor.py` is a standalone helper for debugging bot connectivity
+issues – especially useful when the LoRa radio receives messages but the bot
+does not respond.
+
+### Prerequisites
+
+Install the dev dependencies (includes `psutil` for system metrics):
+
+```bash
+source .venv/bin/activate
+pip install -r requirements-dev.txt
+```
+
+### Available modes
+
+| Flag | Description |
+|---|---|
+| `--info` | Print system info (CPU, RAM, disk, uptime, Python/platform) and environment summary (GROQ_API_KEY masked). Also tests Groq API reachability. |
+| `--list-serial` | List all `/dev/ttyUSB*`, `/dev/ttyACM*`, `/dev/ttyS*` devices with permissions. Highlights whether the configured `SERIAL_PORT` is present and accessible. |
+| `--listen` | Connect to MeshCore and print **all** incoming events with timestamps and payloads. Press Ctrl+C or let `--duration` expire to stop. |
+| `--send-test PUBKEY_PREFIX` | Connect to MeshCore and send a single test message to the specified pubkey prefix. |
+| `--text "…"` | Message text for `--send-test` (default: `mcbot monitor test`). |
+| `--duration SECONDS` | How long to listen with `--listen` (default: `30`). |
+
+### Example commands
+
+```bash
+# 1. Check system health and environment (safe, no hardware required)
+python mcbot_monitor.py --info
+
+# 2. See which serial devices are present and if current user can access them
+python mcbot_monitor.py --list-serial
+
+# 3. Connect and watch for all incoming events for 60 seconds
+#    (stop cyoa_bot.py first – only one process can hold the serial port)
+python mcbot_monitor.py --listen --duration 60
+
+# 4. Send a one-off test message to confirm outbound path works
+python mcbot_monitor.py --send-test <PUBKEY_PREFIX> --text "hello from monitor"
+
+# 5. Run without flags to get both help text and --info output
+python mcbot_monitor.py
+```
+
+### What to look for on a Raspberry Pi
+
+**Bot not responding at all?**
+
+1. Run `--info` – check that `GROQ_API_KEY` is set and the Groq API is
+   reachable.  If not, the bot will refuse to start.
+2. Run `--list-serial` – confirm the device listed under `SERIAL_PORT` exists
+   and your user has read/write permission (must be in the `dialout` group).
+3. Stop `cyoa_bot.py` (or the `mcbot` systemd service), then run
+   `--listen --duration 60` while sending a message from a LoRa node.
+   If the `CONTACT_MSG_RECV` event appears in the output the hardware path is
+   working; the issue is in the bot logic.  If **no** events appear, the
+   problem is at the serial/radio layer.
+
+**Bot responds sometimes but not others?**
+
+- Watch the event summary printed after `--listen` finishes.  Look for
+  `DISCONNECTED` events or a high rate of `ERROR` events that might indicate
+  an unstable serial connection.
+
+**Permission denied when opening the serial port?**
+
+```bash
+sudo usermod -a -G dialout $USER
+newgrp dialout   # apply without logging out
 ```
 
 ---
