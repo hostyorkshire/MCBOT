@@ -90,8 +90,14 @@ The wizard will:
   - Answer `n` (or press Enter) and the wizard will print example commands so
     you can run the monitor later.
 
-> **Note:** Systemd installation requires root. Either run `sudo ./setup.sh`
-> from the start, or answer `y` when prompted and re-run with `sudo ./setup.sh`.
+> **Note:** Systemd installation requires root. Either run
+> `sudo bash "$(pwd)/setup.sh"` from the repo directory from the start, or
+> simply answer `y` when the script prompts *"Re-run now with sudo?"* and it
+> will re-exec itself automatically.
+>
+> **Why not `sudo ./setup.sh`?** `sudo` resets `PATH` and does not look in the
+> current directory, so `sudo ./setup.sh` returns *"command not found"* on many
+> systems. Using the full path (`sudo bash /abs/path/to/setup.sh`) avoids this.
 
 **Alternative – manual setup:**
 
@@ -273,10 +279,13 @@ newgrp dialout   # apply without logging out
 
 ### Automated installation (recommended)
 
-Re-run the setup wizard with `sudo` and answer `y` to the service prompt:
+Re-run the setup wizard and answer `y` to the service prompt.  The simplest
+way is to let the script re-exec itself – when the wizard asks
+*"Re-run now with sudo?"* just answer `y`.  Alternatively, pass the full path
+to avoid the `sudo: ./setup.sh: command not found` pitfall:
 
 ```bash
-sudo ./setup.sh
+sudo bash "$(pwd)/setup.sh"
 ```
 
 The script writes `/etc/systemd/system/mcbot.service` (using the paths and
