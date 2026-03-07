@@ -50,36 +50,41 @@ MCBOT/
 
 ## Quick Start
 
-### 1. Install Python dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-### 2. Configure environment
-
-**Recommended – interactive setup wizard:**
+### 1. Run the setup wizard
 
 ```bash
 chmod +x setup.sh
 ./setup.sh
 ```
 
-The wizard prompts for all configuration values, writes `.env`, and
-optionally installs and enables the `mcbot.service` systemd service so the
-bot **starts automatically on every reboot** (Raspberry Pi / Linux only).
-When prompted *"Would you like to install and enable the mcbot systemd
-service?"* answer `y` and the script will:
+The wizard will:
 
-- Write `/etc/systemd/system/mcbot.service` with the correct paths and user
-- Run `systemctl daemon-reload` and `systemctl enable --now mcbot.service`
+- Create a Python virtual environment at `.venv/` (reused on re-runs).
+- Install all dependencies from `requirements.txt` into the venv.
+- Prompt for all configuration values and write `.env`.
+- Optionally install and enable the `mcbot.service` systemd service so the
+  bot **starts automatically on every reboot** (Raspberry Pi / Linux only).
+  When prompted *"Would you like to install and enable the mcbot systemd
+  service?"* answer `y` and the script will:
+  - Write `/etc/systemd/system/mcbot.service` with the correct paths and user
+  - Configure `ExecStart` to use `.venv/bin/python` so all dependencies are
+    available when the service starts
+  - Run `systemctl daemon-reload` and `systemctl enable --now mcbot.service`
 
 > **Note:** Systemd installation requires root. Either run `sudo ./setup.sh`
 > from the start, or answer `y` when prompted and re-run with `sudo ./setup.sh`.
 
-**Alternative – manual copy:**
+**Alternative – manual setup:**
 
 ```bash
+# Create and activate the virtual environment
+python3 -m venv .venv
+source .venv/bin/activate     # Windows: .venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Copy and edit the configuration
 cp .env.example .env
 ```
 
@@ -90,16 +95,21 @@ Edit `.env` and fill in at minimum:
 | `GROQ_API_KEY` | Free API key from [console.groq.com](https://console.groq.com) |
 | `SERIAL_PORT` | USB serial port, e.g. `/dev/ttyUSB0` |
 
-### 3. Add yourself to the `dialout` group (Linux)
+### 2. Add yourself to the `dialout` group (Linux)
 
 ```bash
 sudo usermod -a -G dialout $USER
 newgrp dialout          # apply without logging out
 ```
 
-### 4. Run the bot
+### 3. Run the bot
 
 ```bash
+# Via the venv Python directly (no activation needed)
+.venv/bin/python cyoa_bot.py
+
+# Or activate the venv first
+source .venv/bin/activate
 python cyoa_bot.py
 ```
 
@@ -140,8 +150,19 @@ All settings are loaded from environment variables (`.env` file):
 ## Running Tests
 
 ```bash
-pip install pytest pytest-asyncio
+# Activate the virtual environment (created by ./setup.sh)
+source .venv/bin/activate
+
+# Install dev dependencies and run tests
+pip install -r requirements-dev.txt
 pytest
+```
+
+Or without activating:
+
+```bash
+.venv/bin/pip install -r requirements-dev.txt
+.venv/bin/python -m pytest
 ```
 
 ---
@@ -162,7 +183,15 @@ service so it starts on every boot.
 
 ### Manual installation
 
-1. Copy the template and substitute the placeholder values:
+1. Create the virtual environment and install dependencies (if not already done
+   by `./setup.sh`):
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+```
+
+2. Copy the template and substitute the placeholder values:
 
 ```bash
 sudo cp mcbot.service /etc/systemd/system/mcbot.service
@@ -177,9 +206,9 @@ inline comments explaining each placeholder. Key fields to update:
 | `User` | `pi` (the OS user that owns the repository) |
 | `WorkingDirectory` | `/home/pi/MCBOT` |
 | `EnvironmentFile` | `/home/pi/MCBOT/.env` |
-| `ExecStart` | `/usr/bin/python3 /home/pi/MCBOT/cyoa_bot.py` |
+| `ExecStart` | `/home/pi/MCBOT/.venv/bin/python /home/pi/MCBOT/cyoa_bot.py` |
 
-2. Enable and start:
+3. Enable and start:
 
 ```bash
 sudo systemctl daemon-reload

@@ -20,8 +20,8 @@ User=pi
 WorkingDirectory=/home/pi/MCBOT
 # Environment variables are loaded from the .env file created by setup.sh
 EnvironmentFile=/home/pi/MCBOT/.env
-# Replace with the full path to python3 (use: which python3)
-ExecStart=/usr/bin/python3 /home/pi/MCBOT/cyoa_bot.py
+# Use the venv Python so all requirements are available (run ./setup.sh to create .venv)
+ExecStart=/home/pi/MCBOT/.venv/bin/python /home/pi/MCBOT/cyoa_bot.py
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal
