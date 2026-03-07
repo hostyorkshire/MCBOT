@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import sys
 import types
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -642,3 +643,328 @@ class TestCheckEnv:
         """check_env is False when --check-env is not passed."""
         args = bot._parse_args([])
         assert args.check_env is False
+
+
+# ---------------------------------------------------------------------------
+# Tests: HELP_TEXT constant
+# ---------------------------------------------------------------------------
+
+
+EXPECTED_HELP_TEXT = (
+    "help/?=this. start/new/begin=prompt to begin. restart/reset=reset+start over. "
+    "In story: reply 1/2/3 or send text. After start, answer yes/no in 60s."
+)
+
+
+class TestHelpText:
+    """HELP_TEXT must match the required string exactly and be ≤ 180 chars."""
+
+    def test_help_text_exact_match(self, bot):
+        assert bot.HELP_TEXT == EXPECTED_HELP_TEXT
+
+    def test_help_text_under_180_chars(self, bot):
+        assert len(bot.HELP_TEXT) <= 180
+
+
+# ---------------------------------------------------------------------------
+# Tests: BotHandler – helper utilities
+# ---------------------------------------------------------------------------
+
+
+def _make_handler(bot, confirm_timeout: float = 0.05):
+    """Create a BotHandler with fully mocked mc and story_engine."""
+    mc = MagicMock()
+    mc.commands.send_msg = AsyncMock()
+
+    story_engine = MagicMock()
+    story_engine.has_session = MagicMock(return_value=False)
+    story_engine.clear_session = MagicMock()
+    story_engine.start_story = AsyncMock(return_value="Once upon a time…")
+    story_engine.advance_story = AsyncMock(return_value="Story continues…")
+
+    handler = bot.BotHandler(
+        mc=mc,
+        story_engine=story_engine,
+        max_chunk_size=1000,   # large enough to avoid chunking in tests
+        chunk_delay=0.0,
+        confirm_timeout=confirm_timeout,
+    )
+    return handler, mc, story_engine
+
+
+def _sent_texts(mc) -> list[str]:
+    """Return a flat list of message texts sent via mc.commands.send_msg."""
+    return [call.args[1] for call in mc.commands.send_msg.call_args_list]
+
+
+# ---------------------------------------------------------------------------
+# Tests: BotHandler – help command
+# ---------------------------------------------------------------------------
+
+
+class TestBotHandlerHelp:
+    """Help command should send HELP_TEXT and leave no pending state."""
+
+    @pytest.mark.asyncio
+    async def test_help_sends_help_text(self, bot):
+        handler, mc, _ = _make_handler(bot)
+        await handler.handle("aa11", "help", "Alice")
+        assert EXPECTED_HELP_TEXT in _sent_texts(mc)
+
+    @pytest.mark.asyncio
+    async def test_question_mark_sends_help_text(self, bot):
+        handler, mc, _ = _make_handler(bot)
+        await handler.handle("aa11", "?", "Alice")
+        assert EXPECTED_HELP_TEXT in _sent_texts(mc)
+
+    @pytest.mark.asyncio
+    async def test_slash_help_sends_help_text(self, bot):
+        handler, mc, _ = _make_handler(bot)
+        await handler.handle("aa11", "/help", "Alice")
+        assert EXPECTED_HELP_TEXT in _sent_texts(mc)
+
+    @pytest.mark.asyncio
+    async def test_help_does_not_set_pending_state(self, bot):
+        handler, mc, _ = _make_handler(bot)
+        await handler.handle("aa11", "help", "Alice")
+        assert not handler.is_pending_confirm("aa11")
+
+
+# ---------------------------------------------------------------------------
+# Tests: BotHandler – start command / onboarding flow
+# ---------------------------------------------------------------------------
+
+
+class TestBotHandlerStart:
+    """Start command must send 3 onboarding messages and set pending state."""
+
+    @pytest.mark.asyncio
+    async def test_start_sends_three_messages(self, bot):
+        handler, mc, _ = _make_handler(bot)
+        await handler.handle("bb22", "start", "Bob")
+        texts = _sent_texts(mc)
+        assert len(texts) == 3
+
+    @pytest.mark.asyncio
+    async def test_start_first_message(self, bot):
+        handler, mc, _ = _make_handler(bot)
+        await handler.handle("bb22", "start", "Bob")
+        assert _sent_texts(mc)[0] == bot.ONBOARD_MSG_1
+
+    @pytest.mark.asyncio
+    async def test_start_second_message_is_help_text(self, bot):
+        handler, mc, _ = _make_handler(bot)
+        await handler.handle("bb22", "start", "Bob")
+        assert _sent_texts(mc)[1] == EXPECTED_HELP_TEXT
+
+    @pytest.mark.asyncio
+    async def test_start_third_message(self, bot):
+        handler, mc, _ = _make_handler(bot)
+        await handler.handle("bb22", "start", "Bob")
+        assert _sent_texts(mc)[2] == bot.ONBOARD_MSG_3
+
+    @pytest.mark.asyncio
+    async def test_start_sets_pending_confirm(self, bot):
+        handler, mc, _ = _make_handler(bot)
+        await handler.handle("bb22", "start", "Bob")
+        assert handler.is_pending_confirm("bb22")
+
+    @pytest.mark.asyncio
+    async def test_new_command_triggers_onboarding(self, bot):
+        handler, mc, _ = _make_handler(bot)
+        await handler.handle("bb22", "new", "Bob")
+        assert len(_sent_texts(mc)) == 3
+        assert handler.is_pending_confirm("bb22")
+
+    @pytest.mark.asyncio
+    async def test_begin_command_triggers_onboarding(self, bot):
+        handler, mc, _ = _make_handler(bot)
+        await handler.handle("bb22", "begin", "Bob")
+        assert len(_sent_texts(mc)) == 3
+        assert handler.is_pending_confirm("bb22")
+
+    @pytest.mark.asyncio
+    async def test_duplicate_start_cancels_previous_pending(self, bot):
+        """A second start command replaces any existing pending confirmation."""
+        handler, mc, _ = _make_handler(bot)
+        await handler.handle("bb22", "start", "Bob")
+        first_task = handler._pending_confirm.get("bb22")
+        await handler.handle("bb22", "start", "Bob")
+        # Give the event loop a chance to process the cancellation.
+        await asyncio.sleep(0)
+        # The original task should be cancelled or done.
+        assert first_task is not None
+        assert first_task.cancelled() or first_task.done()
+
+
+# ---------------------------------------------------------------------------
+# Tests: BotHandler – yes/no confirmation handling
+# ---------------------------------------------------------------------------
+
+
+class TestBotHandlerConfirmYes:
+    """Yes-ish replies should start the story and clear pending state."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "yes_word",
+        # "start" is in _YES_CMDS but has command priority: it re-triggers
+        # onboarding rather than confirming, so it is not tested here.
+        ["yes", "y", "ok", "okay", "sure", "yeah", "yep", "please", "go"],
+    )
+    async def test_yes_ish_starts_story(self, bot, yes_word):
+        handler, mc, story_engine = _make_handler(bot)
+        await handler.handle("cc33", "start", "Carol")
+        mc.commands.send_msg.reset_mock()
+        await handler.handle("cc33", yes_word, "Carol")
+        story_engine.start_story.assert_called_once_with("cc33", "Carol")
+
+    @pytest.mark.asyncio
+    async def test_yes_sends_story_text(self, bot):
+        handler, mc, story_engine = _make_handler(bot)
+        await handler.handle("cc33", "start", "Carol")
+        mc.commands.send_msg.reset_mock()
+        await handler.handle("cc33", "yes", "Carol")
+        assert "Once upon a time" in _sent_texts(mc)[0]
+
+    @pytest.mark.asyncio
+    async def test_yes_clears_pending_state(self, bot):
+        handler, mc, _ = _make_handler(bot)
+        await handler.handle("cc33", "start", "Carol")
+        await handler.handle("cc33", "yes", "Carol")
+        assert not handler.is_pending_confirm("cc33")
+
+    @pytest.mark.asyncio
+    async def test_yes_case_insensitive(self, bot):
+        handler, mc, story_engine = _make_handler(bot)
+        await handler.handle("cc33", "start", "Carol")
+        await handler.handle("cc33", "YES", "Carol")
+        story_engine.start_story.assert_called_once()
+
+
+class TestBotHandlerConfirmNo:
+    """No-ish replies should send NO_MSG and clear pending state."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "no_word",
+        ["no", "n", "nope", "not now", "later", "cancel"],
+    )
+    async def test_no_ish_sends_no_msg(self, bot, no_word):
+        handler, mc, story_engine = _make_handler(bot)
+        await handler.handle("dd44", "start", "Dave")
+        mc.commands.send_msg.reset_mock()
+        await handler.handle("dd44", no_word, "Dave")
+        assert bot.NO_MSG in _sent_texts(mc)
+        story_engine.start_story.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_no_clears_pending_state(self, bot):
+        handler, mc, _ = _make_handler(bot)
+        await handler.handle("dd44", "start", "Dave")
+        await handler.handle("dd44", "no", "Dave")
+        assert not handler.is_pending_confirm("dd44")
+
+    @pytest.mark.asyncio
+    async def test_unknown_reply_treated_as_no(self, bot):
+        """An unrecognised reply while pending should behave like no."""
+        handler, mc, story_engine = _make_handler(bot)
+        await handler.handle("dd44", "start", "Dave")
+        mc.commands.send_msg.reset_mock()
+        await handler.handle("dd44", "blahblah", "Dave")
+        assert bot.NO_MSG in _sent_texts(mc)
+        story_engine.start_story.assert_not_called()
+        assert not handler.is_pending_confirm("dd44")
+
+
+# ---------------------------------------------------------------------------
+# Tests: BotHandler – timeout
+# ---------------------------------------------------------------------------
+
+
+class TestBotHandlerTimeout:
+    """After confirm_timeout seconds with no reply the bot sends TIMEOUT_MSG."""
+
+    @pytest.mark.asyncio
+    async def test_timeout_sends_timeout_message(self, bot):
+        # Use a very short timeout so the test completes quickly.
+        handler, mc, _ = _make_handler(bot, confirm_timeout=0.05)
+        await handler.handle("ee55", "start", "Eve")
+        # Wait longer than the timeout.
+        await asyncio.sleep(0.2)
+        assert bot.TIMEOUT_MSG in _sent_texts(mc)
+
+    @pytest.mark.asyncio
+    async def test_timeout_clears_pending_state(self, bot):
+        handler, mc, _ = _make_handler(bot, confirm_timeout=0.05)
+        await handler.handle("ee55", "start", "Eve")
+        await asyncio.sleep(0.2)
+        assert not handler.is_pending_confirm("ee55")
+
+    @pytest.mark.asyncio
+    async def test_no_timeout_if_replied_in_time(self, bot):
+        """If the user replies before the timeout, TIMEOUT_MSG must not be sent."""
+        handler, mc, _ = _make_handler(bot, confirm_timeout=0.2)
+        await handler.handle("ee55", "start", "Eve")
+        # Reply quickly (before timeout fires).
+        await handler.handle("ee55", "yes", "Eve")
+        await asyncio.sleep(0.3)  # let the (now-cancelled) task complete
+        assert bot.TIMEOUT_MSG not in _sent_texts(mc)
+
+
+# ---------------------------------------------------------------------------
+# Tests: BotHandler – restart/reset
+# ---------------------------------------------------------------------------
+
+
+class TestBotHandlerReset:
+    """restart/reset clears the session and triggers the onboarding flow."""
+
+    @pytest.mark.asyncio
+    async def test_restart_clears_session(self, bot):
+        handler, mc, story_engine = _make_handler(bot)
+        await handler.handle("ff66", "restart", "Frank")
+        story_engine.clear_session.assert_called_once_with("ff66")
+
+    @pytest.mark.asyncio
+    async def test_restart_triggers_onboarding(self, bot):
+        handler, mc, story_engine = _make_handler(bot)
+        await handler.handle("ff66", "restart", "Frank")
+        texts = _sent_texts(mc)
+        assert len(texts) == 3
+        assert texts[0] == bot.ONBOARD_MSG_1
+        assert texts[1] == EXPECTED_HELP_TEXT
+        assert texts[2] == bot.ONBOARD_MSG_3
+
+    @pytest.mark.asyncio
+    async def test_restart_sets_pending_confirm(self, bot):
+        handler, mc, _ = _make_handler(bot)
+        await handler.handle("ff66", "restart", "Frank")
+        assert handler.is_pending_confirm("ff66")
+
+    @pytest.mark.asyncio
+    async def test_reset_clears_session(self, bot):
+        handler, mc, story_engine = _make_handler(bot)
+        await handler.handle("ff66", "reset", "Frank")
+        story_engine.clear_session.assert_called_once_with("ff66")
+
+    @pytest.mark.asyncio
+    async def test_reset_triggers_onboarding(self, bot):
+        handler, mc, story_engine = _make_handler(bot)
+        await handler.handle("ff66", "reset", "Frank")
+        texts = _sent_texts(mc)
+        assert len(texts) == 3
+        assert texts[0] == bot.ONBOARD_MSG_1
+
+    @pytest.mark.asyncio
+    async def test_restart_cancels_existing_pending(self, bot):
+        """restart during a pending confirmation cancels the old task."""
+        handler, mc, _ = _make_handler(bot)
+        await handler.handle("ff66", "start", "Frank")
+        old_task = handler._pending_confirm.get("ff66")
+        await handler.handle("ff66", "restart", "Frank")
+        # Give the event loop a chance to process the cancellation.
+        await asyncio.sleep(0)
+        assert old_task is not None
+        assert old_task.cancelled() or old_task.done()
+        assert handler.is_pending_confirm("ff66")

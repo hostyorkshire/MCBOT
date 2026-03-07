@@ -53,11 +53,21 @@ CHUNK_DELAY: float = float(os.getenv("CHUNK_DELAY", "2.0"))
 MAX_HISTORY: int = int(os.getenv("MAX_HISTORY", "10"))
 
 HELP_TEXT: str = (
-    "CYOA Bot: send 'start' to begin. "
-    "Reply 1/2/3 to choose. "
-    "'restart' resets your story. "
-    "'help' shows this message."
+    "help/?=this. start/new/begin=prompt to begin. restart/reset=reset+start over. "
+    "In story: reply 1/2/3 or send text. After start, answer yes/no in 60s."
 )
+
+# Onboarding / confirmation messages
+ONBOARD_MSG_1: str = (
+    "I am going to tell you a story, but first here are some commands you may need."
+)
+ONBOARD_MSG_3: str = "Would like to start?"
+TIMEOUT_MSG: str = "Nothing heard - send start again to awake me"
+NO_MSG: str = "Ok. Send start again when you're ready."
+
+# Seconds to wait for yes/no confirmation after sending the start prompt.
+# Kept as a module-level constant so tests can patch it to a small value.
+START_CONFIRM_TIMEOUT: float = 60.0
 
 # Valid single-digit choice commands
 _CHOICES = {"1", "2", "3"}
@@ -67,6 +77,10 @@ _START_CMDS = {"start", "new", "begin"}
 _RESET_CMDS = {"restart", "reset"}
 # Commands that show help
 _HELP_CMDS = {"help", "?"}
+# Affirmative replies that confirm a start prompt
+_YES_CMDS = {"yes", "y", "ok", "okay", "sure", "yeah", "yep", "please", "go", "start"}
+# Negative replies that decline a start prompt
+_NO_CMDS = {"no", "n", "nope", "not now", "later", "cancel"}
 
 # Prefixes that some MeshCore clients prepend to commands (e.g. /start, !start)
 _CMD_PREFIXES = ("/", "!", "\\")
@@ -428,6 +442,176 @@ async def send_chunked(
 
 
 # ---------------------------------------------------------------------------
+# BotHandler – per-user state machine
+# ---------------------------------------------------------------------------
+
+
+class BotHandler:
+    """Manages per-user state and dispatches incoming messages.
+
+    Encapsulates the yes/no confirmation flow introduced by the start-command
+    onboarding so that it can be tested independently of the hardware layer.
+
+    Args:
+        mc: Connected :class:`~meshcore.MeshCore` instance (or compatible mock).
+        story_engine: :class:`StoryEngine` used to generate story text.
+        max_chunk_size: Maximum characters per LoRa chunk.
+        chunk_delay: Seconds between consecutive chunks.
+        confirm_timeout: Seconds to wait for a yes/no reply before timing out.
+            Defaults to the module-level :data:`START_CONFIRM_TIMEOUT`.
+    """
+
+    def __init__(
+        self,
+        mc: object,
+        story_engine: StoryEngine,
+        max_chunk_size: int = MAX_CHUNK_SIZE,
+        chunk_delay: float = CHUNK_DELAY,
+        confirm_timeout: float | None = None,
+    ) -> None:
+        self.mc = mc
+        self.story_engine = story_engine
+        self.max_chunk_size = max_chunk_size
+        self.chunk_delay = chunk_delay
+        self.confirm_timeout = (
+            confirm_timeout if confirm_timeout is not None else START_CONFIRM_TIMEOUT
+        )
+        # pubkey_prefix → running timeout asyncio.Task
+        self._pending_confirm: dict[str, asyncio.Task] = {}  # type: ignore[type-arg]
+        # pubkey_prefix → user_name stored at confirmation start
+        self._pending_user_names: dict[str, str] = {}
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    async def _send(self, destination: str, text: str) -> None:
+        """Send *text* to *destination* using :func:`send_chunked`."""
+        await send_chunked(self.mc, destination, text, self.max_chunk_size, self.chunk_delay)
+
+    def _cancel_pending(self, pubkey_prefix: str) -> None:
+        """Cancel any running timeout task for *pubkey_prefix* and clear state."""
+        task = self._pending_confirm.pop(pubkey_prefix, None)
+        if task and not task.done():
+            task.cancel()
+        self._pending_user_names.pop(pubkey_prefix, None)
+
+    async def _timeout_task(self, pubkey_prefix: str) -> None:
+        """Sleep for :attr:`confirm_timeout` seconds, then send the timeout message."""
+        await asyncio.sleep(self.confirm_timeout)
+        # Remove self from pending state before sending so the slot is free.
+        self._pending_confirm.pop(pubkey_prefix, None)
+        self._pending_user_names.pop(pubkey_prefix, None)
+        log.info("Confirmation timeout for %s – sending timeout message", pubkey_prefix)
+        await self._send(pubkey_prefix, TIMEOUT_MSG)
+
+    async def _start_onboarding(self, pubkey_prefix: str, user_name: str) -> None:
+        """Cancel any existing confirmation and begin the 3-message onboarding."""
+        self._cancel_pending(pubkey_prefix)
+        log.info(
+            "Starting onboarding for %s (%s) – sending 3 messages",
+            user_name,
+            pubkey_prefix,
+        )
+        await self._send(pubkey_prefix, ONBOARD_MSG_1)
+        await self._send(pubkey_prefix, HELP_TEXT)
+        await self._send(pubkey_prefix, ONBOARD_MSG_3)
+        self._pending_user_names[pubkey_prefix] = user_name
+        task = asyncio.create_task(self._timeout_task(pubkey_prefix))
+        self._pending_confirm[pubkey_prefix] = task
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def is_pending_confirm(self, pubkey_prefix: str) -> bool:
+        """Return ``True`` when *pubkey_prefix* is awaiting a yes/no reply."""
+        return pubkey_prefix in self._pending_confirm
+
+    async def handle(self, pubkey_prefix: str, text: str, user_name: str) -> None:
+        """Dispatch an incoming message from *pubkey_prefix*.
+
+        Args:
+            pubkey_prefix: Sender's pubkey prefix (used as user key).
+            text: Raw message text exactly as received.
+            user_name: Friendly display name for the sender.
+        """
+        command = _normalize_command(text)
+
+        # ------------------------------------------------------------------
+        # Reset and start commands always take priority, even while awaiting
+        # a yes/no confirmation (e.g. restart while pending re-triggers flow).
+        # ------------------------------------------------------------------
+
+        # --- help ---
+        if command in _HELP_CMDS:
+            log.info("Help command from %s (%s)", user_name, pubkey_prefix)
+            await self._send(pubkey_prefix, HELP_TEXT)
+            log.info("Sent help text to %s (%s)", user_name, pubkey_prefix)
+            return
+
+        # --- reset then start ---
+        if command in _RESET_CMDS:
+            log.info("Reset command from %s (%s)", user_name, pubkey_prefix)
+            self.story_engine.clear_session(pubkey_prefix)
+            command = "start"
+
+        # --- start onboarding (also reached after reset) ---
+        if command in _START_CMDS:
+            await self._start_onboarding(pubkey_prefix, user_name)
+            return
+
+        # ------------------------------------------------------------------
+        # If we're waiting for a yes/no confirmation, handle it now.
+        # ------------------------------------------------------------------
+        if self.is_pending_confirm(pubkey_prefix):
+            self._cancel_pending(pubkey_prefix)
+            stored_name = self._pending_user_names.pop(pubkey_prefix, user_name)
+            if command in _YES_CMDS:
+                log.info(
+                    "Yes-ish confirmation from %s (%s) – starting story",
+                    stored_name,
+                    pubkey_prefix,
+                )
+                response = await self.story_engine.start_story(pubkey_prefix, stored_name)
+                await self._send(pubkey_prefix, response)
+            else:
+                # Treat anything non-yes-ish (including no-ish or unknown) as a no.
+                log.info(
+                    "No-ish confirmation from %s (%s) – returning to idle",
+                    stored_name,
+                    pubkey_prefix,
+                )
+                await self._send(pubkey_prefix, NO_MSG)
+            return
+
+        # ------------------------------------------------------------------
+        # Normal dispatch (not awaiting confirmation, not a command).
+        # ------------------------------------------------------------------
+
+        # --- numbered choice ---
+        if command in _CHOICES:
+            response = await self.story_engine.advance_story(pubkey_prefix, command)
+
+        # --- free-text input while in a session ---
+        elif self.story_engine.has_session(pubkey_prefix):
+            response = await self.story_engine.advance_story(pubkey_prefix, text)
+
+        # --- unknown command, no active session ---
+        else:
+            log.info(
+                "Unknown command %r from %s (%s) – sending help",
+                command,
+                user_name,
+                pubkey_prefix,
+            )
+            await self._send(pubkey_prefix, HELP_TEXT)
+            return
+
+        await self._send(pubkey_prefix, response)
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -468,6 +652,13 @@ async def main(argv: list[str] | None = None) -> None:
     # resolve sender names later.
     await mc.commands.get_contacts()
 
+    handler = BotHandler(
+        mc=mc,
+        story_engine=story_engine,
+        max_chunk_size=MAX_CHUNK_SIZE,
+        chunk_delay=CHUNK_DELAY,
+    )
+
     async def handle_message(event) -> None:  # type: ignore[type-arg]
         """Process an incoming direct message event."""
         payload = event.payload
@@ -488,51 +679,7 @@ async def main(argv: list[str] | None = None) -> None:
         snippet = text[:80] + ("…" if len(text) > 80 else "")
         log.info("Message from %s (%s): %r", user_name, pubkey_prefix, snippet)
 
-        command = _normalize_command(text)
-
-        # --- help ---
-        if command in _HELP_CMDS:
-            log.info("Help command from %s (%s)", user_name, pubkey_prefix)
-            await send_chunked(mc, pubkey_prefix, HELP_TEXT, MAX_CHUNK_SIZE, CHUNK_DELAY)
-            log.info("Sent help text to %s (%s)", user_name, pubkey_prefix)
-            return
-
-        # --- reset then start ---
-        if command in _RESET_CMDS:
-            log.info("Reset command from %s (%s)", user_name, pubkey_prefix)
-            story_engine.clear_session(pubkey_prefix)
-            command = "start"
-
-        # --- start new adventure ---
-        if command in _START_CMDS:
-            log.info(
-                "Start command from %s (%s) – beginning new adventure",
-                user_name,
-                pubkey_prefix,
-            )
-            response = await story_engine.start_story(pubkey_prefix, user_name)
-            log.info("Sending story opening to %s (%s)", user_name, pubkey_prefix)
-
-        # --- numbered choice ---
-        elif command in _CHOICES:
-            response = await story_engine.advance_story(pubkey_prefix, command)
-
-        # --- free-text input while in a session ---
-        elif story_engine.has_session(pubkey_prefix):
-            response = await story_engine.advance_story(pubkey_prefix, text)
-
-        # --- unknown command, no active session ---
-        else:
-            log.info(
-                "Unknown command %r from %s (%s) – sending help",
-                command,
-                user_name,
-                pubkey_prefix,
-            )
-            await send_chunked(mc, pubkey_prefix, HELP_TEXT, MAX_CHUNK_SIZE, CHUNK_DELAY)
-            return
-
-        await send_chunked(mc, pubkey_prefix, response, MAX_CHUNK_SIZE, CHUNK_DELAY)
+        await handler.handle(pubkey_prefix, text, user_name)
 
     mc.subscribe(EventType.CONTACT_MSG_RECV, handle_message)
 
