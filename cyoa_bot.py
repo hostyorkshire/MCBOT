@@ -22,6 +22,7 @@ import asyncio
 import glob
 import logging
 import os
+import types
 
 from dotenv import load_dotenv
 from meshcore import EventType, MeshCore
@@ -211,6 +212,104 @@ def _normalize_command(text: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+# Candidate method names for draining the inbox, tried in order.
+_DRAIN_CANDIDATES: tuple[str, ...] = (
+    "get_messages",
+    "read_messages",
+    "drain_messages",
+    "read_inbox",
+    "drain_inbox",
+    "inbox",
+)
+
+
+def _normalise_drain_result(result: object) -> list[dict]:
+    """Convert the raw return value of a drain method to a list of payload dicts.
+
+    Handles:
+
+    - A list of dicts (returned directly).
+    - A dict with a ``messages`` key containing a list.
+    - A single dict (wrapped in a list).
+    - Anything else (logged and skipped).
+
+    Args:
+        result: Raw return value from an inbox-drain method.
+
+    Returns:
+        List of dicts, each guaranteed to contain at least ``pubkey_prefix``
+        and ``text`` keys (empty strings when the source data lacks them).
+    """
+    items: list[object]
+    if isinstance(result, list):
+        items = result
+    elif isinstance(result, dict):
+        inner = result.get("messages")
+        if isinstance(inner, list):
+            items = inner
+        else:
+            items = [result]
+    else:
+        log.warning(
+            "Unexpected drain result type %s – skipping", type(result).__name__
+        )
+        return []
+
+    payloads: list[dict] = []
+    for item in items:
+        if isinstance(item, dict):
+            payloads.append(
+                {
+                    **item,
+                    "pubkey_prefix": item.get("pubkey_prefix", ""),
+                    "text": item.get("text", ""),
+                }
+            )
+        else:
+            log.warning("Skipping non-dict drain item: %r", item)
+    return payloads
+
+
+async def _drain_inbox(commands: object) -> list[dict]:
+    """Try candidate drain methods on *commands* and return normalised payloads.
+
+    Iterates over :data:`_DRAIN_CANDIDATES` and calls the first method that
+    exists on *commands*.  Handles :exc:`TypeError` (signature mismatch) and
+    falls through to the next candidate.  Returns an empty list if no candidate
+    succeeds.
+
+    Args:
+        commands: The ``mc.commands`` object from a connected
+            :class:`~meshcore.MeshCore` instance.
+
+    Returns:
+        List of normalised payload dicts with at least ``pubkey_prefix`` and
+        ``text`` keys.
+    """
+    for name in _DRAIN_CANDIDATES:
+        method = getattr(commands, name, None)
+        if method is None:
+            continue
+        log.info("Attempting inbox drain via mc.commands.%s()", name)
+        try:
+            result = await method()
+        except TypeError as exc:
+            log.warning("mc.commands.%s() signature mismatch: %s", name, exc)
+            continue
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "mc.commands.%s() raised an unexpected error: %s", name, exc
+            )
+            continue
+        return _normalise_drain_result(result)
+
+    log.warning(
+        "No inbox-drain method found on mc.commands (tried: %s)",
+        ", ".join(_DRAIN_CANDIDATES),
+    )
+    return []
+
+
 async def send_chunked(
     mc: MeshCore,
     destination: str,
@@ -338,6 +437,25 @@ async def main(argv: list[str] | None = None) -> None:
         await send_chunked(mc, pubkey_prefix, response, MAX_CHUNK_SIZE, CHUNK_DELAY)
 
     mc.subscribe(EventType.CONTACT_MSG_RECV, handle_message)
+
+    _drain_lock = asyncio.Lock()
+
+    async def handle_messages_waiting(event) -> None:  # type: ignore[type-arg]
+        """Drain queued messages when MeshCore signals MESSAGES_WAITING."""
+        if _drain_lock.locked():
+            log.debug(
+                "Drain already in progress – skipping MESSAGES_WAITING event"
+            )
+            return
+        async with _drain_lock:
+            log.info("MESSAGES_WAITING received – draining inbox")
+            payloads = await _drain_inbox(mc.commands)
+            for payload in payloads:
+                # Wrap the raw payload so handle_message can access event.payload.
+                event_wrapper = types.SimpleNamespace(payload=payload)
+                await handle_message(event_wrapper)
+
+    mc.subscribe(EventType.MESSAGES_WAITING, handle_messages_waiting)
     log.info("CYOA Bot is running. Waiting for messages…")
 
     try:
