@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 # Check if .env.example exists
 if [ ! -f .env.example ]; then
@@ -71,5 +72,73 @@ echo "CHUNK_DELAY=$CHUNK_DELAY" >> .env
 
 echo "MAX_HISTORY=$MAX_HISTORY" >> .env
 
-# Print next steps
-printf "\nNext steps:\n1. Run: pip install -r requirements.txt\n2. Run: python cyoa_bot.py\n"
+# ---------------------------------------------------------------------------
+# Systemd service installation (optional)
+# ---------------------------------------------------------------------------
+
+printf "\n"
+read -rp "Would you like to install and enable the mcbot systemd service (auto-start on reboot)? (y/N): " install_service
+if [ "$install_service" = "y" ] || [ "$install_service" = "Y" ]; then
+
+    # Require root/sudo for systemd installation
+    if [ "$EUID" -ne 0 ]; then
+        echo ""
+        echo "ERROR: Systemd service installation requires root privileges."
+        echo "Please re-run the script with sudo:"
+        echo "  sudo ./setup.sh"
+        exit 1
+    fi
+
+    WORKDIR="$(cd "$(dirname "$0")" && pwd)"
+    # When called via sudo, use SUDO_USER to get the original user name;
+    # fall back to the current user if SUDO_USER is unset or empty.
+    BOT_USER="${SUDO_USER:-$(whoami)}"
+    PYTHON_BIN="$(command -v python3)"
+    SERVICE_DEST="/etc/systemd/system/mcbot.service"
+
+    echo "Installing systemd unit to ${SERVICE_DEST} ..."
+    echo "  User:           ${BOT_USER}"
+    echo "  WorkingDirectory: ${WORKDIR}"
+    echo "  ExecStart:      ${PYTHON_BIN} ${WORKDIR}/cyoa_bot.py"
+
+    # Stop the service if it is already running before replacing the unit file;
+    # this avoids leaving a running process tied to the old unit definition
+    # while the new file is being written.
+    systemctl stop mcbot.service 2>/dev/null || true
+
+    # Write the unit file with actual paths substituted in
+    cat > "${SERVICE_DEST}" << UNIT
+[Unit]
+Description=MeshCore CYOA Story Bot
+After=network.target
+
+[Service]
+Type=simple
+User=${BOT_USER}
+WorkingDirectory=${WORKDIR}
+EnvironmentFile=${WORKDIR}/.env
+ExecStart=${PYTHON_BIN} ${WORKDIR}/cyoa_bot.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+    chmod 644 "${SERVICE_DEST}"
+    systemctl daemon-reload
+    systemctl enable --now mcbot.service
+
+    echo ""
+    echo "mcbot.service installed and enabled successfully!"
+    echo "  Status:   sudo systemctl status mcbot"
+    echo "  Logs:     sudo journalctl -u mcbot -f"
+    echo "  Stop:     sudo systemctl stop mcbot"
+    echo "  Disable:  sudo systemctl disable mcbot"
+    printf "\nThe bot will now start automatically on every reboot.\n"
+else
+    # Print manual next steps when skipping service installation
+    printf "\nNext steps:\n1. Run: pip install -r requirements.txt\n2. Run: python cyoa_bot.py\n"
+fi

@@ -38,7 +38,8 @@ MCBOT/
 ├── utils.py           # Message chunking helpers
 ├── requirements.txt   # Python dependencies
 ├── .env.example       # Configuration template
-├── setup.sh           # Interactive setup wizard (.env generator)
+├── setup.sh           # Interactive setup wizard (.env generator + systemd installer)
+├── mcbot.service      # Systemd unit file template (installed by setup.sh)
 ├── pytest.ini         # Test configuration
 └── tests/
     ├── test_story_engine.py
@@ -63,6 +64,18 @@ pip install -r requirements.txt
 chmod +x setup.sh
 ./setup.sh
 ```
+
+The wizard prompts for all configuration values, writes `.env`, and
+optionally installs and enables the `mcbot.service` systemd service so the
+bot **starts automatically on every reboot** (Raspberry Pi / Linux only).
+When prompted *"Would you like to install and enable the mcbot systemd
+service?"* answer `y` and the script will:
+
+- Write `/etc/systemd/system/mcbot.service` with the correct paths and user
+- Run `systemctl daemon-reload` and `systemctl enable --now mcbot.service`
+
+> **Note:** Systemd installation requires root. Either run `sudo ./setup.sh`
+> from the start, or answer `y` when prompted and re-run with `sudo ./setup.sh`.
 
 **Alternative – manual copy:**
 
@@ -133,35 +146,68 @@ pytest
 
 ---
 
-## Running as a systemd Service (Raspberry Pi)
+## Running as a systemd Service (Linux / Auto-start on Reboot)
 
-Create `/etc/systemd/system/cyoa-bot.service`:
+### Automated installation (recommended)
 
-```ini
-[Unit]
-Description=MeshCore CYOA Story Bot
-After=network.target
-
-[Service]
-Type=simple
-User=pi
-WorkingDirectory=/home/pi/MCBOT
-EnvironmentFile=/home/pi/MCBOT/.env
-ExecStart=/usr/bin/python3 /home/pi/MCBOT/cyoa_bot.py
-Restart=on-failure
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Enable and start:
+Re-run the setup wizard with `sudo` and answer `y` to the service prompt:
 
 ```bash
-sudo systemctl enable cyoa-bot
-sudo systemctl start cyoa-bot
-sudo journalctl -u cyoa-bot -f
+sudo ./setup.sh
 ```
+
+The script writes `/etc/systemd/system/mcbot.service` (using the paths and
+user detected at install time), reloads the systemd daemon, and enables the
+service so it starts on every boot.
+
+### Manual installation
+
+1. Copy the template and substitute the placeholder values:
+
+```bash
+sudo cp mcbot.service /etc/systemd/system/mcbot.service
+sudo nano /etc/systemd/system/mcbot.service   # fill in User, WorkingDirectory, ExecStart
+```
+
+The `mcbot.service` file in this repository contains the full template with
+inline comments explaining each placeholder. Key fields to update:
+
+| Field | Example value |
+|---|---|
+| `User` | `pi` (the OS user that owns the repository) |
+| `WorkingDirectory` | `/home/pi/MCBOT` |
+| `EnvironmentFile` | `/home/pi/MCBOT/.env` |
+| `ExecStart` | `/usr/bin/python3 /home/pi/MCBOT/cyoa_bot.py` |
+
+2. Enable and start:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now mcbot
+```
+
+### Managing the service
+
+| Task | Command |
+|---|---|
+| Check status | `sudo systemctl status mcbot` |
+| View live logs | `sudo journalctl -u mcbot -f` |
+| View recent logs | `sudo journalctl -u mcbot -n 50` |
+| Stop the bot | `sudo systemctl stop mcbot` |
+| Start the bot | `sudo systemctl start mcbot` |
+| Restart the bot | `sudo systemctl restart mcbot` |
+| Disable auto-start | `sudo systemctl disable mcbot` |
+| Re-enable auto-start | `sudo systemctl enable mcbot` |
+
+### Verifying auto-start after reboot
+
+```bash
+sudo reboot
+# after the Pi comes back up:
+sudo systemctl status mcbot
+```
+
+The service status should show `active (running)` and `enabled`.
 
 ---
 
