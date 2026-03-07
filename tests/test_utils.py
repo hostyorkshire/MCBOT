@@ -58,8 +58,8 @@ class TestChunkMessageSplitting:
     def test_multiple_spaces_between_words(self):
         text = "word1  word2   word3"
         chunks = chunk_message(text, 200)
-        # str.split() normalises multiple spaces
-        assert chunks == ["word1 word2 word3"]
+        # The new line-aware implementation preserves spaces within a line.
+        assert chunks == ["word1  word2   word3"]
 
     def test_chunk_count_grows_with_smaller_size(self):
         text = " ".join(["hello"] * 20)
@@ -88,3 +88,62 @@ class TestChunkMessageEdgeCases:
         chunks = chunk_message(text, 20)
         # Verify all characters from the original are present in the chunks
         assert "".join(chunks).replace(" ", "") == text.replace(" ", "")
+
+
+class TestChunkMessageNewlineAware:
+    def test_multiline_text_preserves_newlines_in_chunk(self):
+        text = "Story.\n1. Go left\n2. Hide\n3. Run"
+        chunks = chunk_message(text, 200)
+        assert len(chunks) == 1
+        assert "\n1. Go left" in chunks[0]
+        assert "\n2. Hide" in chunks[0]
+        assert "\n3. Run" in chunks[0]
+
+    def test_choices_in_same_chunk_when_narrative_fits(self):
+        # 170-char narrative + ~40-char choices block = under 200 → one chunk
+        narrative = "A" * 150
+        text = f"{narrative}\n1. Go left\n2. Hide\n3. Run"
+        chunks = chunk_message(text, 200)
+        choices_chunk = chunks[-1]
+        assert "1. Go left" in choices_chunk
+        assert "2. Hide" in choices_chunk
+        assert "3. Run" in choices_chunk
+
+    def test_choices_stay_together_when_narrative_overflows(self):
+        # 195-char narrative forces a split; choices must be in the SAME chunk.
+        narrative = "B" * 195
+        text = f"{narrative}\n1. Option A\n2. Option B\n3. Option C"
+        chunks = chunk_message(text, 200)
+        assert len(chunks) == 2
+        choices_chunk = chunks[-1]
+        assert "1. Option A" in choices_chunk
+        assert "2. Option B" in choices_chunk
+        assert "3. Option C" in choices_chunk
+
+    def test_newline_in_single_line_input_unchanged(self):
+        # Single-line text with no newlines still works as before.
+        result = chunk_message("hello world", 200)
+        assert result == ["hello world"]
+
+    def test_explicit_newline_creates_hard_break(self):
+        # A newline in the source must NOT be swallowed – each line is distinct.
+        text = "line one\nline two"
+        chunks = chunk_message(text, 200)
+        assert len(chunks) == 1
+        assert chunks[0] == "line one\nline two"
+
+    def test_newline_forces_new_chunk_when_lines_overflow(self):
+        # First line fills chunk; second line must start a new chunk.
+        line1 = "x" * 195
+        line2 = "short"
+        text = f"{line1}\n{line2}"
+        chunks = chunk_message(text, 200)
+        assert len(chunks) == 2
+        assert chunks[0] == line1
+        assert chunks[1] == line2
+
+    def test_all_chunks_within_size_with_newlines(self):
+        lines = [f"line {i} with some padding text" for i in range(20)]
+        text = "\n".join(lines)
+        for chunk in chunk_message(text, 50):
+            assert len(chunk) <= 50

@@ -8,6 +8,7 @@ on a Raspberry Pi Zero 2W.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from groq import AsyncGroq
@@ -22,12 +23,67 @@ _SYSTEM_PROMPT = (
     "You are a narrator for a text-based 'Create Your Own Adventure' (CYOA) "
     "story delivered over a LoRa mesh radio network.  STRICT RULES:\n"
     "1. Keep EVERY response under 220 characters total (including choices).\n"
-    "2. End EVERY response with exactly 3 numbered choices on one line, e.g.: "
-    "1) Go left  2) Hide  3) Call out\n"
+    "2. End EVERY response with exactly 3 numbered choices, each on its own "
+    "line, using the format '1.' '2.' '3.' — for example:\n"
+    "1. Go left\n"
+    "2. Hide\n"
+    "3. Call out\n"
     "3. Use vivid but very short sentences.  No filler text.\n"
-    "4. If the story reaches a definitive end, write [END] and offer "
-    "1) Restart  2) New adventure  3) Quit"
+    "4. If the story reaches a definitive end, write [END] and offer:\n"
+    "1. Restart\n"
+    "2. New adventure\n"
+    "3. Quit"
 )
+
+# ---------------------------------------------------------------------------
+# Regex helpers for normalising LLM choice output.
+# ---------------------------------------------------------------------------
+
+# Matches three inline choices: "1) foo  2) bar  3) baz" or "1. foo  2. bar  3. baz"
+# Uses [^\n]+ to avoid accidentally matching choices already on separate lines.
+_INLINE_CHOICES_RE = re.compile(
+    r"1\s*[).]\s*(?P<c1>[^\n]+?)\s*(?=2\s*[).])"
+    r"2\s*[).]\s*(?P<c2>[^\n]+?)\s*(?=3\s*[).])"
+    r"3\s*[).]\s*(?P<c3>[^\n]+?)\s*$",
+    re.MULTILINE,
+)
+
+
+def _format_reply(text: str) -> str:
+    """Normalise an LLM reply so choices are on separate lines in ``N.`` format.
+
+    Handles three common LLM output patterns:
+
+    * Already-correct multiline ``\\n1. foo\\n2. bar\\n3. baz`` – returned unchanged.
+    * Multiline with parentheses ``\\n1) foo\\n2) bar\\n3) baz`` – ``)`` → ``.``.
+    * Inline ``1) foo  2) bar  3) baz`` or ``1. foo  2. bar  3. baz`` – split into
+      separate lines.
+
+    Args:
+        text: Raw LLM reply string.
+
+    Returns:
+        Reply with choices on separate ``N.`` lines.
+    """
+    # Already on separate lines with '.' format for all three choices – no change needed.
+    if re.search(r"\n1\. .+\n2\. .+\n3\. ", text):
+        return text
+
+    # Separate lines with ')' format – convert ')' to '.'.
+    if "\n1) " in text:
+        return re.sub(r"(?m)^([1-3])\) ", r"\1. ", text)
+
+    # Inline format – reformat into separate lines.
+    m = _INLINE_CHOICES_RE.search(text)
+    if m:
+        narrative = text[: m.start()].rstrip()
+        c1 = m.group("c1").strip()
+        c2 = m.group("c2").strip()
+        c3 = m.group("c3").strip()
+        prefix = narrative + "\n" if narrative else ""
+        return f"{prefix}1. {c1}\n2. {c2}\n3. {c3}"
+
+    return text
 
 
 class Session:
@@ -151,7 +207,7 @@ class StoryEngine:
                 max_tokens=self._max_tokens,
             )
             content = response.choices[0].message.content
-            return content.strip() if content else ""
+            return _format_reply(content.strip()) if content else ""
         except Exception as exc:  # noqa: BLE001
             exc_str = str(exc)
             if "model_decommissioned" in exc_str or (
