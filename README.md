@@ -225,6 +225,8 @@ Install the dev dependencies (includes `psutil` for system metrics):
 | `--send-test PUBKEY_PREFIX` | Connect to MeshCore and send a single test message to the specified pubkey prefix. |
 | `--text "…"` | Message text for `--send-test` (default: `mcbot monitor test`). |
 | `--duration SECONDS` | How long to listen with `--listen` (default: `30`). |
+| `--debug` | With `--listen`: print the full raw JSON payload for every event. |
+| `--watch-start` | With `--listen`: print a highlighted banner whenever an inbound message is a `start`/`new`/`begin` command (including with a leading `/` or `!` prefix). |
 
 ### Example commands
 
@@ -239,12 +241,63 @@ Install the dev dependencies (includes `psutil` for system metrics):
 #    (stop cyoa_bot.py first – only one process can hold the serial port)
 .venv/bin/python mcbot_monitor.py --listen --duration 60
 
-# 4. Send a one-off test message to confirm outbound path works
+# 4. Watch specifically for start commands with a clear banner
+.venv/bin/python mcbot_monitor.py --listen --duration 120 --watch-start
+
+# 5. Show raw JSON payloads for every event (useful for firmware debugging)
+.venv/bin/python mcbot_monitor.py --listen --duration 60 --debug
+
+# 6. Send a one-off test message to confirm outbound path works
 .venv/bin/python mcbot_monitor.py --send-test <PUBKEY_PREFIX> --text "hello from monitor"
 
-# 5. Run without flags to get both help text and --info output
+# 7. Run without flags to get both help text and --info output
 .venv/bin/python mcbot_monitor.py
 ```
+
+### Verifying that a `start` command is received
+
+Use this workflow to confirm the full path from radio to bot command handler
+**without** modifying any code and without needing to restart the bot:
+
+1. **Stop the bot** so the monitor can open the serial port:
+
+   ```bash
+   # If running as a systemd service:
+   sudo systemctl stop mcbot
+
+   # If running directly:
+   # Press Ctrl+C in the terminal where cyoa_bot.py is running.
+   ```
+
+2. **Start the monitor** in watch-start mode:
+
+   ```bash
+   .venv/bin/python mcbot_monitor.py --listen --duration 120 --watch-start
+   ```
+
+3. **Send `start`** from a MeshCore client to the bot node.
+
+4. **Expected output** – you should see something like:
+
+   ```
+   [2024-07-01T12:00:05.123] EVENT: CONTACT_MSG_RECV
+     ├─ from       : ab12cd34
+     ├─ message    : 'start'
+     ★★★ START COMMAND DETECTED ★★★  (normalised: 'start')
+   ```
+
+   The `★★★` banner confirms the message arrived at the serial layer **and**
+   that the bot's command normaliser would recognise it (even with a leading
+   `/` or `!` prefix such as `/start`).
+
+5. If the `CONTACT_MSG_RECV` event appears but the bot does **not** respond,
+   check the bot's log output (`sudo journalctl -u mcbot -f`) for lines
+   containing `"Start command from"` — this INFO-level log line is emitted
+   immediately when the bot receives a recognised start command.
+
+6. If **no** `CONTACT_MSG_RECV` event appears, the problem is at the radio or
+   serial layer.  Re-check `SERIAL_PORT`, the `dialout` group, and whether the
+   MeshCore firmware is running on the device.
 
 ### What to look for on a Raspberry Pi
 
@@ -255,10 +308,11 @@ Install the dev dependencies (includes `psutil` for system metrics):
 2. Run `--list-serial` – confirm the device listed under `SERIAL_PORT` exists
    and your user has read/write permission (must be in the `dialout` group).
 3. Stop `cyoa_bot.py` (or the `mcbot` systemd service), then run
-   `--listen --duration 60` while sending a message from a LoRa node.
-   If the `CONTACT_MSG_RECV` event appears in the output the hardware path is
-   working; the issue is in the bot logic.  If **no** events appear, the
-   problem is at the serial/radio layer.
+   `--listen --watch-start --duration 60` while sending a `start` message
+   from a LoRa node.
+   If the `★★★ START COMMAND DETECTED ★★★` banner appears, the hardware path
+   is working; restart the bot and check its logs.  If **no** events appear,
+   the problem is at the serial/radio layer.
 
 **Bot responds sometimes but not others?**
 

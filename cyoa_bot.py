@@ -63,6 +63,28 @@ _RESET_CMDS = {"restart", "reset"}
 # Commands that show help
 _HELP_CMDS = {"help", "?"}
 
+# Prefixes that some MeshCore clients prepend to commands (e.g. /start, !start)
+_CMD_PREFIXES = ("/", "!", "\\")
+
+
+def _normalize_command(text: str) -> str:
+    """Normalize *text* to a bare lower-case command token.
+
+    Strips surrounding whitespace, removes a single leading ``/``, ``!``, or
+    ``\\`` prefix, and lower-cases the result.  This makes the bot tolerant of
+    clients that send ``/start``, ``!start``, etc.
+
+    Args:
+        text: Raw message text received from a MeshCore client.
+
+    Returns:
+        Normalized command string (e.g. ``"start"``).
+    """
+    cmd = text.strip().lower()
+    if cmd and cmd[0] in _CMD_PREFIXES:
+        cmd = cmd[1:]
+    return cmd
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -145,23 +167,33 @@ async def main() -> None:
             else "Adventurer"
         )
 
-        log.info("Message from %s (%s): %s", user_name, pubkey_prefix, text)
+        snippet = text[:80] + ("…" if len(text) > 80 else "")
+        log.info("Message from %s (%s): %r", user_name, pubkey_prefix, snippet)
 
-        command = text.lower()
+        command = _normalize_command(text)
 
         # --- help ---
         if command in _HELP_CMDS:
+            log.info("Help command from %s (%s)", user_name, pubkey_prefix)
             await send_chunked(mc, pubkey_prefix, HELP_TEXT, MAX_CHUNK_SIZE, CHUNK_DELAY)
+            log.info("Sent help text to %s (%s)", user_name, pubkey_prefix)
             return
 
         # --- reset then start ---
         if command in _RESET_CMDS:
+            log.info("Reset command from %s (%s)", user_name, pubkey_prefix)
             story_engine.clear_session(pubkey_prefix)
             command = "start"
 
         # --- start new adventure ---
         if command in _START_CMDS:
+            log.info(
+                "Start command from %s (%s) – beginning new adventure",
+                user_name,
+                pubkey_prefix,
+            )
             response = await story_engine.start_story(pubkey_prefix, user_name)
+            log.info("Sending story opening to %s (%s)", user_name, pubkey_prefix)
 
         # --- numbered choice ---
         elif command in _CHOICES:
@@ -173,6 +205,12 @@ async def main() -> None:
 
         # --- unknown command, no active session ---
         else:
+            log.info(
+                "Unknown command %r from %s (%s) – sending help",
+                command,
+                user_name,
+                pubkey_prefix,
+            )
             await send_chunked(mc, pubkey_prefix, HELP_TEXT, MAX_CHUNK_SIZE, CHUNK_DELAY)
             return
 
