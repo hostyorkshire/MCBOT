@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from story_engine import Session, StoryEngine
+from story_engine import Session, StoryEngine, _format_reply
 
 
 # ---------------------------------------------------------------------------
@@ -14,7 +14,7 @@ from story_engine import Session, StoryEngine
 # ---------------------------------------------------------------------------
 
 
-def _make_mock_groq(reply: str = "You stand at a crossroads. 1) Go left 2) Go right 3) Wait") -> MagicMock:
+def _make_mock_groq(reply: str = "You stand at a crossroads.\n1. Go left\n2. Go right\n3. Wait") -> MagicMock:
     """Return a MagicMock that mimics the AsyncGroq client."""
     mock_choice = MagicMock()
     mock_choice.message.content = reply
@@ -115,7 +115,7 @@ class TestStoryEngineSession:
 class TestStoryEngineStory:
     @pytest.mark.asyncio
     async def test_start_story_returns_llm_reply(self, engine: StoryEngine):
-        expected = "Dark cave ahead. 1) Enter 2) Run 3) Shout"
+        expected = "Dark cave ahead.\n1. Enter\n2. Run\n3. Shout"
         engine._client = _make_mock_groq(expected)
         result = await engine.start_story("u1", "Bob")
         assert result == expected
@@ -127,7 +127,7 @@ class TestStoryEngineStory:
 
     @pytest.mark.asyncio
     async def test_advance_story_valid_choice(self, engine: StoryEngine):
-        expected = "You stepped into the cave. 1) Go deeper 2) Back 3) Listen"
+        expected = "You stepped into the cave.\n1. Go deeper\n2. Back\n3. Listen"
         engine._client = _make_mock_groq(expected)
         await engine.start_story("u1", "Carol")
         result = await engine.advance_story("u1", "1")
@@ -135,7 +135,7 @@ class TestStoryEngineStory:
 
     @pytest.mark.asyncio
     async def test_advance_story_free_text(self, engine: StoryEngine):
-        expected = "Interesting choice! 1) Continue 2) Stop 3) Look around"
+        expected = "Interesting choice!\n1. Continue\n2. Stop\n3. Look around"
         engine._client = _make_mock_groq(expected)
         await engine.start_story("u1", "Dave")
         result = await engine.advance_story("u1", "I try to pick the lock")
@@ -160,3 +160,55 @@ class TestStoryEngineStory:
         )
         result = await engine.advance_story("u1", "1")
         assert "API error" in result or "error" in result.lower()
+
+    @pytest.mark.asyncio
+    async def test_llm_reply_choices_formatted_on_separate_lines(self, engine: StoryEngine):
+        """_call_llm must post-process inline choices into separate lines."""
+        raw = "Dark forest. 1) Run  2) Hide  3) Fight"
+        engine._client = _make_mock_groq(raw)
+        result = await engine.start_story("u1", "Grace")
+        assert "\n1. " in result
+        assert "\n2. " in result
+        assert "\n3. " in result
+
+
+# ---------------------------------------------------------------------------
+# _format_reply unit tests
+# ---------------------------------------------------------------------------
+
+
+class TestFormatReply:
+    def test_already_correct_format_unchanged(self):
+        text = "Dark forest.\n1. Run\n2. Hide\n3. Fight"
+        assert _format_reply(text) == text
+
+    def test_inline_paren_choices_reformatted(self):
+        text = "Dark forest. 1) Run  2) Hide  3) Fight"
+        result = _format_reply(text)
+        assert result == "Dark forest.\n1. Run\n2. Hide\n3. Fight"
+
+    def test_inline_dot_choices_reformatted(self):
+        text = "Cave ahead. 1. Enter  2. Run  3. Shout"
+        result = _format_reply(text)
+        assert result == "Cave ahead.\n1. Enter\n2. Run\n3. Shout"
+
+    def test_multiline_paren_choices_converted_to_dot(self):
+        text = "Dark forest.\n1) Run\n2) Hide\n3) Fight"
+        result = _format_reply(text)
+        assert result == "Dark forest.\n1. Run\n2. Hide\n3. Fight"
+
+    def test_end_scene_inline_choices_reformatted(self):
+        text = "[END] 1) Restart  2) New adventure  3) Quit"
+        result = _format_reply(text)
+        assert result == "[END]\n1. Restart\n2. New adventure\n3. Quit"
+
+    def test_choices_each_on_own_line(self):
+        text = "Story.\n1. A\n2. B\n3. C"
+        lines = _format_reply(text).splitlines()
+        assert lines[-3].startswith("1.")
+        assert lines[-2].startswith("2.")
+        assert lines[-1].startswith("3.")
+
+    def test_text_without_choices_returned_unchanged(self):
+        text = "No choices here."
+        assert _format_reply(text) == text
