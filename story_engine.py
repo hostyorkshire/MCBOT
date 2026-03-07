@@ -72,7 +72,7 @@ class StoryEngine:
     def __init__(
         self,
         api_key: str,
-        model: str = "llama3-8b-8192",
+        model: str = "llama-3.1-8b-instant",
         max_history: int = 10,
         max_tokens: int = 120,
     ) -> None:
@@ -153,5 +153,17 @@ class StoryEngine:
             content = response.choices[0].message.content
             return content.strip() if content else ""
         except Exception as exc:  # noqa: BLE001
-            log.error("Groq API error: %s", exc)
+            exc_str = str(exc)
+            if "model_decommissioned" in exc_str or (
+                hasattr(exc, "code") and getattr(exc, "code", None) == "model_decommissioned"
+            ):
+                log.error(
+                    "Groq model '%s' has been decommissioned. "
+                    "Update the GROQ_MODEL environment variable in your .env file "
+                    "and restart the service. "
+                    "See current models at https://console.groq.com/docs/deprecations",
+                    self._model,
+                )
+            else:
+                log.error("Groq API error: %s", exc)
             return "The story pauses… (API error). Try again in a moment."

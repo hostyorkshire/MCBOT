@@ -47,7 +47,7 @@ log = logging.getLogger(__name__)
 SERIAL_PORT: str = os.getenv("SERIAL_PORT", "/dev/ttyUSB0")
 BAUD_RATE: int = int(os.getenv("BAUD_RATE", "115200"))
 GROQ_API_KEY: str | None = os.getenv("GROQ_API_KEY")
-GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama3-8b-8192")
+GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
 MAX_CHUNK_SIZE: int = int(os.getenv("MAX_CHUNK_SIZE", "200"))
 CHUNK_DELAY: float = float(os.getenv("CHUNK_DELAY", "2.0"))
 MAX_HISTORY: int = int(os.getenv("MAX_HISTORY", "10"))
@@ -151,8 +151,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         argv: Argument list (defaults to ``sys.argv[1:]`` when ``None``).
 
     Returns:
-        Parsed :class:`argparse.Namespace` with ``port`` and ``baud``
-        attributes.
+        Parsed :class:`argparse.Namespace` with ``port``, ``baud``, and
+        ``check_env`` attributes.
     """
     parser = argparse.ArgumentParser(
         description=(
@@ -183,6 +183,14 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=(
             "Serial baud rate  "
             "[env: BAUD_RATE, default: %(default)s]"
+        ),
+    )
+    parser.add_argument(
+        "--check-env",
+        action="store_true",
+        help=(
+            "Print whether required environment variables are set "
+            "(does not print secret values) and exit."
         ),
     )
     return parser.parse_args(argv)
@@ -271,12 +279,15 @@ def _normalise_drain_result(result: object) -> list[dict]:
 
 
 async def _drain_inbox(commands: object) -> list[dict]:
-    """Try candidate drain methods on *commands* and return normalised payloads.
+    """Drain queued inbox messages and return normalised payloads.
 
-    Iterates over :data:`_DRAIN_CANDIDATES` and calls the first method that
-    exists on *commands*.  Handles :exc:`TypeError` (signature mismatch) and
-    falls through to the next candidate.  Returns an empty list if no candidate
-    succeeds.
+    Tries ``mc.commands.get_msg()`` first (meshcore 2.2.x+): repeatedly calls
+    it until an :attr:`~meshcore.EventType.NO_MORE_MSGS` event is received,
+    deduplicating payloads within the same drain session to guard against any
+    firmware that may echo the same event twice.
+
+    Falls back to :data:`_DRAIN_CANDIDATES` (bulk-drain methods present in
+    older meshcore builds) when ``get_msg`` is not available.
 
     Args:
         commands: The ``mc.commands`` object from a connected
@@ -286,6 +297,45 @@ async def _drain_inbox(commands: object) -> list[dict]:
         List of normalised payload dicts with at least ``pubkey_prefix`` and
         ``text`` keys.
     """
+    # ------------------------------------------------------------------
+    # meshcore 2.2.x+: iterative get_msg() drain
+    # ------------------------------------------------------------------
+    get_msg = getattr(commands, "get_msg", None)
+    if get_msg is not None:
+        log.info("Draining inbox via mc.commands.get_msg() loop (meshcore 2.2.x+)")
+        payloads: list[dict] = []
+        seen: set[tuple[str, str]] = set()
+        while True:
+            try:
+                event = await get_msg()
+            except Exception as exc:  # noqa: BLE001
+                log.warning("mc.commands.get_msg() raised an error: %s", exc)
+                break
+            event_type = getattr(event, "type", None)
+            if event_type == EventType.NO_MORE_MSGS:
+                log.info(
+                    "get_msg() drain complete – %d message(s) received",
+                    len(payloads),
+                )
+                break
+            raw_payload = getattr(event, "payload", None)
+            if not isinstance(raw_payload, dict):
+                continue
+            pk: str = raw_payload.get("pubkey_prefix", "")
+            txt: str = raw_payload.get("text", "")
+            dedup_key = (pk, txt)
+            if dedup_key in seen:
+                log.debug(
+                    "Skipping duplicate get_msg() payload from %s: %r", pk, txt
+                )
+                continue
+            seen.add(dedup_key)
+            payloads.append({**raw_payload, "pubkey_prefix": pk, "text": txt})
+        return payloads
+
+    # ------------------------------------------------------------------
+    # Fallback: bulk-drain candidates for older meshcore builds
+    # ------------------------------------------------------------------
     for name in _DRAIN_CANDIDATES:
         method = getattr(commands, name, None)
         if method is None:
@@ -304,10 +354,50 @@ async def _drain_inbox(commands: object) -> list[dict]:
         return _normalise_drain_result(result)
 
     log.warning(
-        "No inbox-drain method found on mc.commands (tried: %s)",
+        "No inbox-drain method found on mc.commands (tried: get_msg, %s)",
         ", ".join(_DRAIN_CANDIDATES),
     )
     return []
+
+
+def _check_env() -> None:
+    """Print the status of required and optional environment variables.
+
+    Shows whether each variable is set and (for non-secret values) its current
+    value.  API keys are never printed – only their presence and length are
+    reported.  This function always exits the process after printing.
+    """
+    vars_info = [
+        ("GROQ_API_KEY", GROQ_API_KEY, True),
+        ("GROQ_MODEL", GROQ_MODEL, False),
+        ("SERIAL_PORT", SERIAL_PORT, False),
+        ("BAUD_RATE", str(BAUD_RATE), False),
+        ("MAX_CHUNK_SIZE", str(MAX_CHUNK_SIZE), False),
+        ("CHUNK_DELAY", str(CHUNK_DELAY), False),
+        ("MAX_HISTORY", str(MAX_HISTORY), False),
+    ]
+    print("Environment variable check:")
+    all_ok = True
+    for name, value, is_secret in vars_info:
+        # Treat any variable whose name contains KEY or SECRET as sensitive,
+        # regardless of the is_secret flag, to guard against misconfiguration.
+        treat_as_secret = is_secret or any(
+            kw in name.upper() for kw in ("KEY", "SECRET", "PASSWORD", "TOKEN")
+        )
+        if value:
+            if treat_as_secret:
+                status = f"SET (length {len(value)})"
+            else:
+                status = f"SET ({value})"
+        else:
+            status = "NOT SET ✗"
+            all_ok = False
+        print(f"  {name}: {status}")
+    if not all_ok:
+        print("\n✗ One or more required variables are missing. Edit your .env file.")
+        raise SystemExit(1)
+    print("\n✓ All required variables are set.")
+    raise SystemExit(0)
 
 
 async def send_chunked(
@@ -345,10 +435,18 @@ async def send_chunked(
 async def main(argv: list[str] | None = None) -> None:
     """Connect to MeshCore and run the CYOA bot event loop."""
     args = _parse_args(argv)
+
+    if args.check_env:
+        _check_env()  # prints and exits
+
     serial_port: str = args.port
     baud_rate: int = args.baud
 
     if not GROQ_API_KEY:
+        log.error(
+            "GROQ_API_KEY environment variable is not set or empty. "
+            "Get a free key at https://console.groq.com and add it to .env."
+        )
         raise RuntimeError(
             "GROQ_API_KEY environment variable is not set. "
             "Get a free key at https://console.groq.com"
