@@ -17,6 +17,12 @@ Usage examples::
     # Connect and print all incoming MeshCore events for 60 s
     python mcbot_monitor.py --listen --duration 60
 
+    # Same, but show raw JSON payloads for every event
+    python mcbot_monitor.py --listen --duration 60 --debug
+
+    # Watch specifically for 'start' commands (print a banner when seen)
+    python mcbot_monitor.py --listen --duration 120 --watch-start
+
     # Send a test message to a node
     python mcbot_monitor.py --send-test abc123 --text "ping"
 
@@ -254,7 +260,7 @@ def _describe_device(path: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def cmd_listen(duration: float) -> None:
+async def cmd_listen(duration: float, *, debug: bool = False, watch_start: bool = False) -> None:
     """Connect to MeshCore and log all incoming events."""
     from meshcore import EventType, MeshCore  # noqa: PLC0415
 
@@ -262,6 +268,10 @@ async def cmd_listen(duration: float) -> None:
     print(f"  Serial port  : {SERIAL_PORT}")
     print(f"  Baud rate    : {BAUD_RATE}")
     print(f"  Duration     : {duration:.0f} s")
+    if debug:
+        print("  Debug mode   : ON  (raw JSON payloads shown)")
+    if watch_start:
+        print("  Watch-start  : ON  (start commands highlighted)")
     print(_separator())
 
     log.info("Connecting to MeshCore at %s (baud %d)…", SERIAL_PORT, BAUD_RATE)
@@ -284,6 +294,10 @@ async def cmd_listen(duration: float) -> None:
 
     log.info("Connected. Subscribing to all event types…")
 
+    # Prefixes stripped by the bot's _normalize_command helper.
+    _CMD_PREFIXES = ("/", "!", "\\")
+    _START_CMDS = {"start", "new", "begin"}
+
     received: list[tuple[float, str, object]] = []
 
     def _make_handler(event_name: str):
@@ -291,8 +305,47 @@ async def cmd_listen(duration: float) -> None:
             ts = datetime.datetime.now().isoformat(timespec="milliseconds")
             payload = getattr(event, "payload", event)
             received.append((time.time(), event_name, payload))
+
+            # Always print event type and timestamp.
             print(f"[{ts}] EVENT: {event_name}")
-            print(f"         payload: {payload}")
+
+            # For inbound message events, print human-friendly details.
+            if event_name == "CONTACT_MSG_RECV" and isinstance(payload, dict):
+                pubkey = payload.get("pubkey_prefix", "<unknown>")
+                text = payload.get("text", "")
+                print(f"  ├─ from       : {pubkey}")
+                print(f"  ├─ message    : {text!r}")
+
+                # Detect start commands the same way the bot does.
+                if watch_start:
+                    cmd = text.strip().lower()
+                    if cmd and cmd[0] in _CMD_PREFIXES:
+                        cmd = cmd[1:]
+                    if cmd in _START_CMDS:
+                        print(
+                            "  ★★★ START COMMAND DETECTED ★★★  "
+                            f"(normalised: {cmd!r})"
+                        )
+            elif isinstance(payload, dict):
+                # For other dict payloads print a one-line summary.
+                summary_keys = [k for k in ("text", "name", "id", "type") if k in payload]
+                if summary_keys:
+                    summary = ", ".join(
+                        f"{k}={payload[k]!r}" for k in summary_keys
+                    )
+                    print(f"  ├─ {summary}")
+
+            # In debug mode always print the full raw payload.
+            if debug:
+                try:
+                    import json  # noqa: PLC0415
+
+                    raw = json.dumps(payload, default=str, indent=4)
+                except (TypeError, ValueError):
+                    raw = repr(payload)
+                for line in raw.splitlines():
+                    print(f"  │  {line}")
+
         return handler
 
     for event_type in EventType:
@@ -410,6 +463,24 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="SECONDS",
         help="Seconds to listen for events with --listen (default: 30).",
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help=(
+            "With --listen: print the full raw JSON payload for every event. "
+            "Useful for inspecting exact field names sent by MeshCore firmware."
+        ),
+    )
+    parser.add_argument(
+        "--watch-start",
+        action="store_true",
+        help=(
+            "With --listen: print a highlighted banner whenever an inbound "
+            "message matches the 'start' / 'new' / 'begin' command (including "
+            "with leading / or ! prefix).  Useful for verifying that the bot "
+            "will receive and recognise the command before re-enabling it."
+        ),
+    )
     return parser
 
 
@@ -428,7 +499,13 @@ def _dispatch(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None
         cmd_list_serial()
 
     if args.listen:
-        asyncio.run(cmd_listen(args.duration))
+        asyncio.run(
+            cmd_listen(
+                args.duration,
+                debug=args.debug,
+                watch_start=args.watch_start,
+            )
+        )
 
     if args.send_test:
         asyncio.run(cmd_send_test(args.send_test, args.text))
