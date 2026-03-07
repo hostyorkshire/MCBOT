@@ -1,6 +1,11 @@
 #!/bin/bash
 set -euo pipefail
 
+# Resolve the absolute path of this script so that a reliable sudo command
+# can be printed (or used for auto re-exec) regardless of how the script was
+# invoked (./setup.sh, bash setup.sh, from another directory, etc.).
+SCRIPT_ABS="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+
 # Check if .env.example exists
 if [ ! -f .env.example ]; then
     echo ".env.example file is missing!"
@@ -116,8 +121,17 @@ if [ "$install_service" = "y" ] || [ "$install_service" = "Y" ]; then
     if [ "$EUID" -ne 0 ]; then
         echo ""
         echo "ERROR: Systemd service installation requires root privileges."
-        echo "Please re-run the script with sudo:"
-        echo "  sudo ./setup.sh"
+        echo ""
+        echo "Re-run the script with sudo using its full path:"
+        echo "  sudo bash \"${SCRIPT_ABS}\""
+        echo ""
+        echo "  (Running 'sudo ./setup.sh' fails when sudo resets PATH or the"
+        echo "   working directory differs from the script's location.)"
+        echo ""
+        read -rp "Re-run now with sudo? (y/N): " _rerun_sudo
+        if [ "$_rerun_sudo" = "y" ] || [ "$_rerun_sudo" = "Y" ]; then
+            exec sudo bash "${SCRIPT_ABS}"
+        fi
         exit 1
     fi
 
