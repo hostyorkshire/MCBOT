@@ -1,7 +1,5 @@
 """Tests for utils.chunk_message."""
 
-import pytest
-
 from utils import chunk_message
 
 

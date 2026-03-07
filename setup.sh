@@ -55,7 +55,7 @@ MAX_HISTORY=${input:-$MAX_HISTORY}
 
 # Write to .env file
 
-echo "# .env configuration file\n# Auto-generated script: setup.sh\n# Make sure to set these values correctly" > .env
+printf "# .env configuration file\n# Auto-generated script: setup.sh\n# Make sure to set these values correctly\n" > .env
 
 echo "GROQ_API_KEY=$GROQ_API_KEY" >> .env
 
@@ -72,4 +72,4 @@ echo "CHUNK_DELAY=$CHUNK_DELAY" >> .env
 echo "MAX_HISTORY=$MAX_HISTORY" >> .env
 
 # Print next steps
-echo "\nNext steps:\n1. Run: pip install -r requirements.txt\n2. Run: python cyoa_bot.py"
+printf "\nNext steps:\n1. Run: pip install -r requirements.txt\n2. Run: python cyoa_bot.py\n"
