@@ -317,3 +317,147 @@ class TestParseArgs:
     def test_baud_is_int(self, bot):
         args = bot._parse_args(["--baud", "38400"])
         assert isinstance(args.baud, int)
+
+
+# ---------------------------------------------------------------------------
+# Tests: _normalise_drain_result
+# ---------------------------------------------------------------------------
+
+
+class TestNormaliseDrainResult:
+    """_normalise_drain_result should convert raw drain output to payload list."""
+
+    def test_list_of_dicts_passthrough(self, bot):
+        msgs = [
+            {"pubkey_prefix": "aabb", "text": "hello"},
+            {"pubkey_prefix": "ccdd", "text": "world"},
+        ]
+        result = bot._normalise_drain_result(msgs)
+        assert len(result) == 2
+        assert result[0]["pubkey_prefix"] == "aabb"
+        assert result[0]["text"] == "hello"
+
+    def test_dict_with_messages_key(self, bot):
+        raw = {
+            "messages": [
+                {"pubkey_prefix": "aabb", "text": "hi"},
+            ]
+        }
+        result = bot._normalise_drain_result(raw)
+        assert len(result) == 1
+        assert result[0]["pubkey_prefix"] == "aabb"
+        assert result[0]["text"] == "hi"
+
+    def test_single_dict_wrapped_in_list(self, bot):
+        raw = {"pubkey_prefix": "aabb", "text": "single"}
+        result = bot._normalise_drain_result(raw)
+        assert len(result) == 1
+        assert result[0]["pubkey_prefix"] == "aabb"
+        assert result[0]["text"] == "single"
+
+    def test_missing_keys_default_to_empty_string(self, bot):
+        result = bot._normalise_drain_result([{}])
+        assert result[0]["pubkey_prefix"] == ""
+        assert result[0]["text"] == ""
+
+    def test_extra_keys_preserved(self, bot):
+        msgs = [{"pubkey_prefix": "aa", "text": "x", "extra": 42}]
+        result = bot._normalise_drain_result(msgs)
+        assert result[0]["extra"] == 42
+
+    def test_non_dict_items_in_list_skipped(self, bot):
+        result = bot._normalise_drain_result(["not_a_dict"])
+        assert result == []
+
+    def test_unexpected_type_returns_empty(self, bot):
+        result = bot._normalise_drain_result(12345)
+        assert result == []
+
+    def test_empty_list_returns_empty(self, bot):
+        assert bot._normalise_drain_result([]) == []
+
+
+# ---------------------------------------------------------------------------
+# Tests: _drain_inbox
+# ---------------------------------------------------------------------------
+
+
+class TestDrainInbox:
+    """_drain_inbox should try drain candidates and return normalised payloads."""
+
+    @pytest.mark.asyncio
+    async def test_first_candidate_found_returns_payloads(self, bot):
+        """If the first matching method returns a list of dicts, return them."""
+        import types as _types
+        from unittest.mock import AsyncMock
+
+        mock = AsyncMock(return_value=[{"pubkey_prefix": "aa11", "text": "start"}])
+        commands = _types.SimpleNamespace(get_messages=mock)
+        result = await bot._drain_inbox(commands)
+        assert len(result) == 1
+        assert result[0]["pubkey_prefix"] == "aa11"
+        assert result[0]["text"] == "start"
+
+    @pytest.mark.asyncio
+    async def test_dict_with_messages_key_handled(self, bot):
+        """A drain method returning {'messages': [...]} is normalised correctly."""
+        import types as _types
+        from unittest.mock import AsyncMock
+
+        mock = AsyncMock(
+            return_value={"messages": [{"pubkey_prefix": "bb22", "text": "help"}]}
+        )
+        commands = _types.SimpleNamespace(read_messages=mock)
+        result = await bot._drain_inbox(commands)
+        assert len(result) == 1
+        assert result[0]["pubkey_prefix"] == "bb22"
+
+    @pytest.mark.asyncio
+    async def test_first_candidate_type_error_falls_through_to_second(self, bot):
+        """If first candidate raises TypeError, the next working one is used."""
+        import types as _types
+        from unittest.mock import AsyncMock
+
+        bad_mock = AsyncMock(side_effect=TypeError("wrong signature"))
+        good_mock = AsyncMock(return_value=[{"pubkey_prefix": "cc33", "text": "1"}])
+        # get_messages raises TypeError; read_messages works.
+        commands = _types.SimpleNamespace(
+            get_messages=bad_mock, read_messages=good_mock
+        )
+        result = await bot._drain_inbox(commands)
+        assert len(result) == 1
+        assert result[0]["pubkey_prefix"] == "cc33"
+
+    @pytest.mark.asyncio
+    async def test_no_candidate_found_returns_empty(self, bot):
+        """When no drain method exists on commands, return empty list."""
+        commands = object()
+        result = await bot._drain_inbox(commands)
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_unexpected_exception_skips_candidate(self, bot):
+        """An unexpected exception from a candidate falls through to the next."""
+        import types as _types
+        from unittest.mock import AsyncMock
+
+        bad_mock = AsyncMock(side_effect=ValueError("oops"))
+        good_mock = AsyncMock(return_value=[{"pubkey_prefix": "dd44", "text": "2"}])
+        commands = _types.SimpleNamespace(
+            get_messages=bad_mock, read_messages=good_mock
+        )
+        result = await bot._drain_inbox(commands)
+        assert len(result) == 1
+        assert result[0]["pubkey_prefix"] == "dd44"
+
+    @pytest.mark.asyncio
+    async def test_all_candidates_fail_returns_empty(self, bot):
+        """When every candidate raises, return empty list without raising."""
+        import types as _types
+        from unittest.mock import AsyncMock
+
+        always_fails = AsyncMock(side_effect=TypeError("nope"))
+        attrs = {name: always_fails for name in bot._DRAIN_CANDIDATES}
+        commands = _types.SimpleNamespace(**attrs)
+        result = await bot._drain_inbox(commands)
+        assert result == []
