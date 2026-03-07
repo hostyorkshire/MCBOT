@@ -315,6 +315,57 @@ def apply_settings(ser: "serial.Serial", settings: RadioSettings) -> list[tuple[
     return results
 
 
+def _is_hex_string(s: str) -> bool:
+    """Return ``True`` if *s* is a non-empty string of hexadecimal characters."""
+    return bool(s) and all(c in "0123456789abcdefABCDEF" for c in s)
+
+
+def fetch_pubkey(ser: "serial.Serial") -> str:
+    """Send ``get pubkey`` to the radio and return the raw response."""
+    return send_command(ser, "get pubkey")
+
+
+def parse_pubkey_from_response(response: str) -> Optional[str]:
+    """Extract the hex public key from a ``get pubkey`` response.
+
+    Handles response formats such as:
+    - ``pubkey: abcdef1234...``
+    - ``OK abcdef1234...``
+    - a bare hex string
+
+    Returns the key string if found, or ``None`` if no recognisable key is
+    present in the response.
+    """
+    for line in response.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        # Handle "key: <hex>" or "pubkey: <hex>" style lines.
+        if ":" in stripped:
+            key_part = stripped.split(":", 1)[1].strip()
+            if _is_hex_string(key_part) and len(key_part) >= 8:
+                return key_part
+        # Handle "OK <hex>" style lines.
+        if stripped.upper().startswith("OK "):
+            candidate = stripped[3:].strip()
+            if _is_hex_string(candidate) and len(candidate) >= 8:
+                return candidate
+        # Handle a bare hex string (>= 16 chars to avoid false positives).
+        if _is_hex_string(stripped) and len(stripped) >= 16:
+            return stripped
+    return None
+
+
+def _print_pubkey(ser: "serial.Serial") -> None:
+    """Fetch the radio public key and print it to stdout."""
+    resp = fetch_pubkey(ser)
+    key = parse_pubkey_from_response(resp)
+    if key:
+        print(f"  Radio public key : {key}")
+    else:
+        print("  Radio public key : (could not retrieve)")
+
+
 # ---------------------------------------------------------------------------
 # Interactive helpers
 # ---------------------------------------------------------------------------
@@ -523,6 +574,7 @@ def run_interactive_menu(port: str, baud: int = DEFAULT_BAUD_RATE) -> None:
         sys.exit(1)
 
     print(f"  ✓ Opened {port} at {baud} baud.")
+    _print_pubkey(ser)
 
     settings = RadioSettings()
 
@@ -531,6 +583,7 @@ def run_interactive_menu(port: str, baud: int = DEFAULT_BAUD_RATE) -> None:
         ("Set node name", _menu_set_name),
         ("Set latitude", _menu_set_lat),
         ("Set longitude", _menu_set_lon),
+        ("Show radio public key", None),
         ("Show pending settings", None),
         ("Apply settings (no reboot)", None),
         ("Apply settings + reboot", None),
@@ -564,15 +617,18 @@ def run_interactive_menu(port: str, baud: int = DEFAULT_BAUD_RATE) -> None:
 
             if handler is not None:
                 handler(settings)  # type: ignore[call-arg]
-            elif idx == 4:  # Show pending settings
+            elif idx == 4:  # Show radio public key
+                print(_separator("Radio Public Key"))
+                _print_pubkey(ser)
+            elif idx == 5:  # Show pending settings
                 print(_separator("Pending Settings"))
                 for line in settings.summary():
                     print(line)
-            elif idx == 5:  # Apply (no reboot)
+            elif idx == 6:  # Apply (no reboot)
                 _menu_apply(ser, settings, reboot=False)
-            elif idx == 6:  # Apply + reboot
+            elif idx == 7:  # Apply + reboot
                 _menu_apply(ser, settings, reboot=True)
-            elif idx == 7:  # Shell
+            elif idx == 8:  # Shell
                 _menu_shell(ser)
 
     finally:
@@ -655,6 +711,7 @@ def run_non_interactive(args: argparse.Namespace) -> None:
             if resp:
                 print(f"  {resp}")
             print("  ✓ Reboot command sent.")
+        _print_pubkey(ser)
     finally:
         ser.close()
 
