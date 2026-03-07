@@ -33,19 +33,23 @@ serial.  Story text is generated in real time by the free tier of the
 
 ```
 MCBOT/
-├── cyoa_bot.py        # Main entry point – MeshCore event loop
-├── mcbot_monitor.py   # Diagnostic / monitoring helper (see below)
-├── story_engine.py    # Groq LLM session management
-├── utils.py           # Message chunking helpers
-├── requirements.txt   # Python dependencies
-├── requirements-dev.txt  # Dev/test dependencies (includes psutil)
-├── .env.example       # Configuration template
-├── setup.sh           # Interactive setup wizard (.env generator + systemd installer)
-├── mcbot.service      # Systemd unit file template (installed by setup.sh)
-├── pytest.ini         # Test configuration
+├── cyoa_bot.py                    # Main entry point – MeshCore event loop
+├── mcbot_monitor.py               # Diagnostic / monitoring helper (see below)
+├── meshcore_radio_config.py       # Radio configuration tool (see below)
+├── story_engine.py                # Groq LLM session management
+├── utils.py                       # Message chunking helpers
+├── requirements.txt               # Python dependencies (includes pyserial)
+├── requirements-dev.txt           # Dev/test dependencies (includes psutil)
+├── .env.example                   # Configuration template
+├── setup.sh                       # Interactive setup wizard (.env generator + systemd installer)
+├── mcbot.service                  # Systemd unit file template (installed by setup.sh)
+├── pytest.ini                     # Test configuration
 └── tests/
+    ├── test_cyoa_bot.py
     ├── test_story_engine.py
-    └── test_utils.py
+    ├── test_utils.py
+    ├── test_mcbot_monitor.py
+    └── test_meshcore_radio_config.py
 ```
 
 ---
@@ -58,6 +62,19 @@ Before you begin, make sure `python3-venv` and `python3-pip` are installed:
 sudo apt update
 sudo apt install -y python3-venv python3-pip
 ```
+
+### Python dependencies
+
+| Package | Required by | Notes |
+|---|---|---|
+| `meshcore>=2.0.0` | `cyoa_bot.py`, `mcbot_monitor.py` | MeshCore serial protocol library |
+| `groq>=1.0.0` | `story_engine.py` | Groq cloud LLM API client |
+| `python-dotenv>=1.0.0` | `cyoa_bot.py`, `mcbot_monitor.py` | `.env` file loading |
+| `pyserial>=3.5` | `meshcore_radio_config.py` | Direct USB serial access for radio config |
+
+`pyserial` is used only by `meshcore_radio_config.py`.  All other scripts use
+the `meshcore` library for serial communication.  `./setup.sh` installs all
+dependencies automatically.
 
 ---
 
@@ -326,6 +343,84 @@ Use this workflow to confirm the full path from radio to bot command handler
 sudo usermod -a -G dialout $USER
 newgrp dialout   # apply without logging out
 ```
+
+---
+
+## Radio Configuration Tool (`meshcore_radio_config.py`)
+
+`meshcore_radio_config.py` is a standalone serial configuration tool for
+setting up a MeshCore LoRa radio.  It uses `pyserial` for direct USB serial
+access and is designed for **UK/EU 868 MHz band** operation by default.
+
+### Prerequisites
+
+`pyserial` is installed automatically by `./setup.sh` or manually:
+
+```bash
+.venv/bin/pip install -r requirements.txt
+```
+
+Your user must also be in the `dialout` group to access `/dev/ttyUSB*` and
+`/dev/ttyACM*` devices:
+
+```bash
+sudo usermod -a -G dialout $USER
+newgrp dialout   # apply without logging out
+```
+
+### Usage
+
+```bash
+# Interactive menu (recommended) – select port from list, then configure
+.venv/bin/python meshcore_radio_config.py
+
+# Specify the serial port up front (skip the port-selection prompt)
+.venv/bin/python meshcore_radio_config.py --port /dev/ttyUSB0
+
+# Non-interactive: apply settings and reboot in one command
+.venv/bin/python meshcore_radio_config.py --port /dev/ttyUSB0 \
+    --freq 869.525 --name "MyNode" --lat 53.8 --lon -1.5 --reboot
+
+# Open a raw serial shell for manual MeshCore CLI commands
+.venv/bin/python meshcore_radio_config.py --shell --port /dev/ttyUSB0
+```
+
+### Interactive menu options
+
+| Option | Description |
+|---|---|
+| `1` Set frequency | Set radio frequency (863–870 MHz for UK/EU) |
+| `2` Set node name | Set the node name (no spaces, max 32 chars) |
+| `3` Set latitude | Set GPS latitude (decimal degrees) |
+| `4` Set longitude | Set GPS longitude (decimal degrees) |
+| `5` Show radio public key | Fetch and display the radio's public key |
+| `6` Show pending settings | Preview all staged (unapplied) settings |
+| `7` Apply settings | Send all pending settings to the radio |
+| `8` Apply settings + reboot | Send settings and reboot the radio |
+| `9` Manual serial shell | Drop into a raw CLI shell |
+| `0` Quit | Close the serial port and exit |
+
+### Public key display
+
+The radio's **public key** (used to address it in the MeshCore mesh) is
+automatically shown:
+
+- **On connect** – immediately after opening the serial port.
+- **In the menu** – via option 5 "Show radio public key".
+- **After non-interactive apply** – printed before the port is closed.
+
+### CLI flags
+
+| Flag | Description |
+|---|---|
+| `--port DEVICE` | Serial device, e.g. `/dev/ttyUSB0` |
+| `--baud RATE` | Baud rate (default: `115200`) |
+| `--freq MHZ` | Frequency in MHz (UK/EU default: `869.525`) |
+| `--name NAME` | Node name (no spaces, max 32 chars) |
+| `--lat DEGREES` | Latitude in decimal degrees |
+| `--lon DEGREES` | Longitude in decimal degrees |
+| `--reboot` | Send a reboot command after applying settings |
+| `--shell` | Open a raw serial shell |
 
 ---
 

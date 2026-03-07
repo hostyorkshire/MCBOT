@@ -350,3 +350,85 @@ class TestOpenSerialErrors:
                 mrc.open_serial(str(device))
         finally:
             device.chmod(0o644)  # Restore so tmp_path cleanup works.
+
+
+# ===========================================================================
+# parse_pubkey_from_response
+# ===========================================================================
+
+
+class TestParsePubkeyFromResponse:
+    def test_colon_prefixed_line_returns_key(self):
+        response = "pubkey: abcdef1234567890abcdef1234567890"
+        key = mrc.parse_pubkey_from_response(response)
+        assert key == "abcdef1234567890abcdef1234567890"
+
+    def test_ok_prefixed_line_returns_key(self):
+        response = "OK abcdef1234567890abcdef1234567890"
+        key = mrc.parse_pubkey_from_response(response)
+        assert key == "abcdef1234567890abcdef1234567890"
+
+    def test_bare_hex_string_returns_key(self):
+        key_hex = "abcdef1234567890abcdef1234567890"
+        key = mrc.parse_pubkey_from_response(key_hex)
+        assert key == key_hex
+
+    def test_multiline_response_extracts_key(self):
+        response = "Status: OK\npubkey: 0011223344556677\nEOF"
+        key = mrc.parse_pubkey_from_response(response)
+        assert key == "0011223344556677"
+
+    def test_empty_response_returns_none(self):
+        assert mrc.parse_pubkey_from_response("") is None
+
+    def test_no_hex_content_returns_none(self):
+        assert mrc.parse_pubkey_from_response("Error: command not found") is None
+
+    def test_key_shorter_than_minimum_is_ignored_for_bare(self):
+        # Bare hex strings shorter than 16 chars should not be treated as a key.
+        assert mrc.parse_pubkey_from_response("deadbeef") is None
+
+    def test_colon_key_at_least_8_chars_is_returned(self):
+        response = "key: deadbeef"
+        key = mrc.parse_pubkey_from_response(response)
+        assert key == "deadbeef"
+
+    def test_uppercase_hex_is_accepted(self):
+        response = "pubkey: ABCDEF1234567890ABCDEF1234567890"
+        key = mrc.parse_pubkey_from_response(response)
+        assert key == "ABCDEF1234567890ABCDEF1234567890"
+
+    def test_whitespace_around_key_is_stripped(self):
+        response = "pubkey:   abcdef1234567890   "
+        key = mrc.parse_pubkey_from_response(response)
+        assert key == "abcdef1234567890"
+
+    def test_non_hex_after_colon_returns_none(self):
+        response = "info: this is not a key"
+        assert mrc.parse_pubkey_from_response(response) is None
+
+
+# ===========================================================================
+# fetch_pubkey
+# ===========================================================================
+
+
+class TestFetchPubkey:
+    def test_sends_get_pubkey_command(self):
+        mock_ser = MagicMock()
+        with patch.object(mrc, "send_command", return_value="") as mock_send:
+            mrc.fetch_pubkey(mock_ser)
+        mock_send.assert_called_once_with(mock_ser, "get pubkey")
+
+    def test_returns_raw_response_string(self):
+        mock_ser = MagicMock()
+        expected = "pubkey: abcdef1234567890"
+        with patch.object(mrc, "send_command", return_value=expected):
+            result = mrc.fetch_pubkey(mock_ser)
+        assert result == expected
+
+    def test_returns_empty_string_on_no_response(self):
+        mock_ser = MagicMock()
+        with patch.object(mrc, "send_command", return_value=""):
+            result = mrc.fetch_pubkey(mock_ser)
+        assert result == ""
