@@ -36,12 +36,29 @@ import stat
 import sys
 import time
 
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+
+    _DOTENV_AVAILABLE = True
+except ImportError:
+    _DOTENV_AVAILABLE = False
+
+    def load_dotenv(*_args, **_kwargs) -> None:  # type: ignore[misc]
+        """No-op fallback used when python-dotenv is not installed."""
+
 
 # ---------------------------------------------------------------------------
 # Bootstrap – load .env before anything else reads os.getenv()
 # ---------------------------------------------------------------------------
-load_dotenv()
+if _DOTENV_AVAILABLE:
+    load_dotenv()
+else:
+    print(
+        "WARNING: python-dotenv not installed; skipping .env loading. "
+        "Install with: pip install -r requirements.txt  "
+        "(or run .venv/bin/python mcbot_monitor.py ...)",
+        file=sys.stderr,
+    )
 
 logging.basicConfig(
     level=logging.INFO,
@@ -123,6 +140,13 @@ def cmd_info() -> None:
         )
     except ImportError:
         print("  (install psutil for CPU/RAM/disk stats: pip install psutil)")
+
+    print(_separator("Dependencies"))
+    dotenv_status = "installed" if _DOTENV_AVAILABLE else (
+        "NOT installed – .env not loaded "
+        "(fix: pip install -r requirements.txt)"
+    )
+    print(f"  python-dotenv : {dotenv_status}")
 
     print(_separator("Environment"))
     env_vars = {

@@ -198,6 +198,12 @@ source .venv/bin/activate
 pip install -r requirements-dev.txt
 ```
 
+> **Note:** `mcbot_monitor.py` can run without `python-dotenv` installed —
+> it will skip loading `.env` and print a warning, but all other functionality
+> (system info, serial listing, etc.) will still work.  For full functionality,
+> run it via `.venv/bin/python mcbot_monitor.py` or install all dependencies
+> with `pip install -r requirements.txt`.
+
 ### Available modes
 
 | Flag | Description |
