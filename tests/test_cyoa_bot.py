@@ -21,7 +21,9 @@ def _import_bot():
         fake_mc = types.ModuleType("meshcore")
 
         class _FakeEventType:
-            pass
+            NO_MORE_MSGS = "NO_MORE_MSGS"
+            CONTACT_MSG_RECV = "CONTACT_MSG_RECV"
+            CHANNEL_MSG_RECV = "CHANNEL_MSG_RECV"
 
         fake_mc.EventType = _FakeEventType
         fake_mc.MeshCore = object
@@ -461,3 +463,182 @@ class TestDrainInbox:
         commands = _types.SimpleNamespace(**attrs)
         result = await bot._drain_inbox(commands)
         assert result == []
+
+
+# ---------------------------------------------------------------------------
+# Tests: _drain_inbox – get_msg() loop (meshcore 2.2.x+)
+# ---------------------------------------------------------------------------
+
+
+class TestDrainInboxGetMsg:
+    """_drain_inbox should prefer get_msg() over bulk-drain candidates."""
+
+    @pytest.mark.asyncio
+    async def test_get_msg_drain_returns_messages_before_no_more(self, bot):
+        """get_msg() loop collects messages until NO_MORE_MSGS."""
+        import types as _types
+        from unittest.mock import AsyncMock
+
+        EventType = bot.EventType
+
+        msg_event = _types.SimpleNamespace(
+            type=EventType.CONTACT_MSG_RECV,
+            payload={"pubkey_prefix": "aa11", "text": "start"},
+        )
+        done_event = _types.SimpleNamespace(type=EventType.NO_MORE_MSGS, payload=None)
+
+        get_msg = AsyncMock(side_effect=[msg_event, done_event])
+        commands = _types.SimpleNamespace(get_msg=get_msg)
+        result = await bot._drain_inbox(commands)
+        assert len(result) == 1
+        assert result[0]["pubkey_prefix"] == "aa11"
+        assert result[0]["text"] == "start"
+
+    @pytest.mark.asyncio
+    async def test_get_msg_drain_multiple_messages(self, bot):
+        """get_msg() loop collects multiple messages."""
+        import types as _types
+        from unittest.mock import AsyncMock
+
+        EventType = bot.EventType
+
+        events = [
+            _types.SimpleNamespace(
+                type=EventType.CONTACT_MSG_RECV,
+                payload={"pubkey_prefix": "aa11", "text": "start"},
+            ),
+            _types.SimpleNamespace(
+                type=EventType.CHANNEL_MSG_RECV,
+                payload={"pubkey_prefix": "bb22", "text": "help"},
+            ),
+            _types.SimpleNamespace(type=EventType.NO_MORE_MSGS, payload=None),
+        ]
+
+        get_msg = AsyncMock(side_effect=events)
+        commands = _types.SimpleNamespace(get_msg=get_msg)
+        result = await bot._drain_inbox(commands)
+        assert len(result) == 2
+
+    @pytest.mark.asyncio
+    async def test_get_msg_drain_deduplicates_identical_payloads(self, bot):
+        """Duplicate payloads within one drain session are suppressed."""
+        import types as _types
+        from unittest.mock import AsyncMock
+
+        EventType = bot.EventType
+
+        dup_payload = {"pubkey_prefix": "aa11", "text": "start"}
+        events = [
+            _types.SimpleNamespace(type=EventType.CONTACT_MSG_RECV, payload=dup_payload),
+            _types.SimpleNamespace(type=EventType.CONTACT_MSG_RECV, payload=dup_payload),
+            _types.SimpleNamespace(type=EventType.NO_MORE_MSGS, payload=None),
+        ]
+
+        get_msg = AsyncMock(side_effect=events)
+        commands = _types.SimpleNamespace(get_msg=get_msg)
+        result = await bot._drain_inbox(commands)
+        assert len(result) == 1
+
+    @pytest.mark.asyncio
+    async def test_get_msg_drain_no_messages_returns_empty(self, bot):
+        """If get_msg() returns NO_MORE_MSGS immediately, return empty list."""
+        import types as _types
+        from unittest.mock import AsyncMock
+
+        EventType = bot.EventType
+
+        done_event = _types.SimpleNamespace(type=EventType.NO_MORE_MSGS, payload=None)
+        get_msg = AsyncMock(return_value=done_event)
+        commands = _types.SimpleNamespace(get_msg=get_msg)
+        result = await bot._drain_inbox(commands)
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_get_msg_drain_error_stops_loop_gracefully(self, bot):
+        """If get_msg() raises, the drain stops and returns any messages so far."""
+        import types as _types
+        from unittest.mock import AsyncMock
+
+        EventType = bot.EventType
+
+        msg_event = _types.SimpleNamespace(
+            type=EventType.CONTACT_MSG_RECV,
+            payload={"pubkey_prefix": "cc33", "text": "1"},
+        )
+        get_msg = AsyncMock(side_effect=[msg_event, RuntimeError("serial error")])
+        commands = _types.SimpleNamespace(get_msg=get_msg)
+        result = await bot._drain_inbox(commands)
+        assert len(result) == 1
+        assert result[0]["pubkey_prefix"] == "cc33"
+
+    @pytest.mark.asyncio
+    async def test_get_msg_preferred_over_bulk_candidates(self, bot):
+        """When get_msg exists, bulk-drain candidates are not called."""
+        import types as _types
+        from unittest.mock import AsyncMock
+
+        EventType = bot.EventType
+
+        done_event = _types.SimpleNamespace(type=EventType.NO_MORE_MSGS, payload=None)
+        get_msg = AsyncMock(return_value=done_event)
+        bulk_mock = AsyncMock(return_value=[{"pubkey_prefix": "dd44", "text": "x"}])
+        commands = _types.SimpleNamespace(
+            get_msg=get_msg,
+            get_messages=bulk_mock,
+        )
+        await bot._drain_inbox(commands)
+        bulk_mock.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Tests: --check-env flag
+# ---------------------------------------------------------------------------
+
+
+class TestCheckEnv:
+    """_check_env should print env-var status and exit."""
+
+    def test_check_env_exits_zero_when_all_set(self, bot, capsys):
+        """_check_env exits 0 when GROQ_API_KEY is set."""
+        with patch.object(bot, "GROQ_API_KEY", "fake_key_for_testing"):
+            with pytest.raises(SystemExit) as exc_info:
+                bot._check_env()
+        assert exc_info.value.code == 0
+        out = capsys.readouterr().out
+        assert "GROQ_API_KEY" in out
+        assert "fake_key_for_testing" not in out  # secret must not appear in output
+
+    def test_check_env_exits_nonzero_when_key_missing(self, bot, capsys):
+        """_check_env exits non-zero when GROQ_API_KEY is empty."""
+        with patch.object(bot, "GROQ_API_KEY", ""):
+            with pytest.raises(SystemExit) as exc_info:
+                bot._check_env()
+        assert exc_info.value.code != 0
+
+    def test_check_env_does_not_print_secret_value(self, bot, capsys):
+        """_check_env must never print the actual API key value."""
+        secret = "gsk_supersecret1234567890abcdef"
+        with patch.object(bot, "GROQ_API_KEY", secret):
+            with pytest.raises(SystemExit):
+                bot._check_env()
+        out = capsys.readouterr().out
+        assert secret not in out
+
+    def test_check_env_shows_model_value(self, bot, capsys):
+        """_check_env prints the current GROQ_MODEL value (not secret)."""
+        with patch.object(bot, "GROQ_API_KEY", "fake_key"):
+            with patch.object(bot, "GROQ_MODEL", "llama-3.1-8b-instant"):
+                with pytest.raises(SystemExit):
+                    bot._check_env()
+        out = capsys.readouterr().out
+        assert "llama-3.1-8b-instant" in out
+
+    def test_parse_args_check_env_flag(self, bot):
+        """--check-env flag is parsed as check_env=True."""
+        args = bot._parse_args(["--check-env"])
+        assert args.check_env is True
+
+    def test_parse_args_no_check_env_flag(self, bot):
+        """check_env is False when --check-env is not passed."""
+        args = bot._parse_args([])
+        assert args.check_env is False

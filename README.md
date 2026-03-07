@@ -197,12 +197,18 @@ All settings are loaded from the `.env` file in the project directory:
 | Variable | Default | Description |
 |---|---|---|
 | `GROQ_API_KEY` | *(required)* | Groq API key |
-| `GROQ_MODEL` | `llama3-8b-8192` | Model name (free-tier: `llama3-8b-8192`, `llama3-70b-8192`, `mixtral-8x7b-32768`) |
+| `GROQ_MODEL` | `llama-3.1-8b-instant` | Model name (see [Groq models](https://console.groq.com/docs/models)) |
 | `SERIAL_PORT` | `/dev/ttyUSB0` | Serial device path |
 | `BAUD_RATE` | `115200` | Serial baud rate |
 | `MAX_CHUNK_SIZE` | `200` | Max characters per LoRa message chunk |
 | `CHUNK_DELAY` | `2.0` | Seconds between consecutive message chunks |
 | `MAX_HISTORY` | `10` | Max conversation turns kept per user (RAM limit) |
+
+> **Note:** The old `llama3-8b-8192` model has been decommissioned by Groq.
+> The default is now `llama-3.1-8b-instant`.  If you have `GROQ_MODEL=llama3-8b-8192`
+> in your `.env`, update it and restart the service.  See
+> [Groq deprecation docs](https://console.groq.com/docs/deprecations) for the
+> current model list.
 
 `SERIAL_PORT` and `BAUD_RATE` can also be overridden at runtime with the
 `--port` and `--baud` CLI flags (the flags take precedence over env vars):
@@ -215,13 +221,70 @@ Full `.env` example (also in `.env.example`):
 
 ```ini
 GROQ_API_KEY=gsk_xxxxxxxxxxxxxxxxxxxxxxxxxxxx
-GROQ_MODEL=llama3-8b-8192
+GROQ_MODEL=llama-3.1-8b-instant
 SERIAL_PORT=/dev/ttyUSB0
 BAUD_RATE=115200
 MAX_CHUNK_SIZE=200
 CHUNK_DELAY=2.0
 MAX_HISTORY=10
 ```
+
+### Checking your configuration (without exposing secrets)
+
+Run the built-in env check to verify all required variables are set.  API
+keys are **never** printed – only their presence and length are shown:
+
+```bash
+.venv/bin/python cyoa_bot.py --check-env
+```
+
+Example output:
+
+```
+Environment variable check:
+  GROQ_API_KEY: SET (length 56)
+  GROQ_MODEL: SET (llama-3.1-8b-instant)
+  SERIAL_PORT: SET (/dev/ttyUSB0)
+  BAUD_RATE: SET (115200)
+  MAX_CHUNK_SIZE: SET (200)
+  CHUNK_DELAY: SET (2.0)
+  MAX_HISTORY: SET (10)
+
+✓ All required variables are set.
+```
+
+This is safe to run in logs or paste into a support request.
+
+### Rotating the Groq API key safely
+
+When you need to replace your Groq API key (e.g. it was accidentally exposed):
+
+1. **Generate a new key** at [console.groq.com](https://console.groq.com) –
+   do not paste the old or new key into chat logs, emails, or issue comments.
+
+2. **Update `.env`** on the Raspberry Pi (edit the file directly, never paste
+   into a terminal where it might appear in shell history):
+
+   ```bash
+   nano /home/pi/MCBOT/.env
+   # Replace the GROQ_API_KEY value, save and exit (Ctrl+X → Y → Enter)
+   ```
+
+3. **Verify the key is set** (this does not print the key value):
+
+   ```bash
+   .venv/bin/python cyoa_bot.py --check-env
+   ```
+
+4. **Restart the service** to apply the new key:
+
+   ```bash
+   sudo systemctl restart mcbot
+   sudo systemctl status mcbot   # confirm it came back up
+   ```
+
+5. **Revoke the old key** in the Groq console once the service is running
+   successfully with the new one.
 
 ---
 
