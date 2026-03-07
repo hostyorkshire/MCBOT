@@ -1,0 +1,31 @@
+# mcbot.service – systemd unit file template for the MeshCore CYOA Story Bot
+#
+# This file is a template; run ./setup.sh (as root/sudo) to have it
+# installed automatically with the correct paths and user filled in.
+#
+# To install manually, substitute the placeholder values and copy to
+# /etc/systemd/system/mcbot.service, then run:
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now mcbot.service
+
+[Unit]
+Description=MeshCore CYOA Story Bot
+After=network.target
+
+[Service]
+Type=simple
+# Replace with the OS user that owns the repository (e.g. pi)
+User=pi
+# Replace with the absolute path to the cloned repository
+WorkingDirectory=/home/pi/MCBOT
+# Environment variables are loaded from the .env file created by setup.sh
+EnvironmentFile=/home/pi/MCBOT/.env
+# Replace with the full path to python3 (use: which python3)
+ExecStart=/usr/bin/python3 /home/pi/MCBOT/cyoa_bot.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
