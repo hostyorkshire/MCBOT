@@ -33,6 +33,9 @@ echo "Upgrading pip inside the virtual environment ..."
 echo "Installing Python requirements into the virtual environment ..."
 "$VENV_DIR/bin/pip" install --quiet -r requirements.txt
 
+echo "Installing dev/monitor requirements into the virtual environment ..."
+"$VENV_DIR/bin/pip" install --quiet -r requirements-dev.txt
+
 echo "Python dependencies installed successfully."
 printf "\n"
 
@@ -170,4 +173,21 @@ UNIT
 else
     # Print manual next steps when skipping service installation
     printf "\nNext steps:\n1. Activate the virtual environment: source .venv/bin/activate\n2. Run: python cyoa_bot.py\n   (or without activating: .venv/bin/python cyoa_bot.py)\n"
+fi
+
+# ---------------------------------------------------------------------------
+# Offer to start the mcbot monitor
+# ---------------------------------------------------------------------------
+
+printf "\n"
+read -rp "Would you like to start the mcbot monitor now? (y/N): " start_monitor
+if [ "$start_monitor" = "y" ] || [ "$start_monitor" = "Y" ]; then
+    echo ""
+    echo "Starting mcbot monitor ..."
+    "$VENV_DIR/bin/python" mcbot_monitor.py --info || true
+else
+    echo ""
+    echo "You can run the monitor at any time with:"
+    echo "  ${VENV_DIR}/bin/python mcbot_monitor.py --info"
+    echo "  ${VENV_DIR}/bin/python mcbot_monitor.py --list-serial"
 fi

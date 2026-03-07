@@ -73,7 +73,8 @@ chmod +x setup.sh
 The wizard will:
 
 - Create a Python virtual environment at `.venv/` (reused on re-runs).
-- Install all dependencies from `requirements.txt` into the venv.
+- Install all dependencies from `requirements.txt` and `requirements-dev.txt`
+  (includes `psutil` for the monitor) into the venv using `.venv/bin/pip`.
 - Prompt for all configuration values and write `.env`.
 - Optionally install and enable the `mcbot.service` systemd service so the
   bot **starts automatically on every reboot** (Raspberry Pi / Linux only).
@@ -83,6 +84,11 @@ The wizard will:
   - Configure `ExecStart` to use `.venv/bin/python` so all dependencies are
     available when the service starts
   - Run `systemctl daemon-reload` and `systemctl enable --now mcbot.service`
+- Prompt *"Would you like to start the mcbot monitor now?"*:
+  - Answer `y` to launch `mcbot_monitor.py --info` immediately using the venv
+    interpreter (no activation required).
+  - Answer `n` (or press Enter) and the wizard will print example commands so
+    you can run the monitor later.
 
 > **Note:** Systemd installation requires root. Either run `sudo ./setup.sh`
 > from the start, or answer `y` when prompted and re-run with `sudo ./setup.sh`.
@@ -95,10 +101,11 @@ python3 -m venv .venv
 source .venv/bin/activate     # Windows: .venv\Scripts\activate
 
 # Install dependencies
-pip install -r requirements.txt
+.venv/bin/pip install -r requirements.txt
+.venv/bin/pip install -r requirements-dev.txt
 
 # Verify that python-dotenv installed correctly
-python -c "from dotenv import load_dotenv; print('python-dotenv OK')"
+.venv/bin/python -c "from dotenv import load_dotenv; print('python-dotenv OK')"
 
 # Copy and edit the configuration
 cp .env.example .env
@@ -166,15 +173,11 @@ All settings are loaded from environment variables (`.env` file):
 ## Running Tests
 
 ```bash
-# Activate the virtual environment (created by ./setup.sh)
-source .venv/bin/activate
-
-# Install dev dependencies and run tests
-pip install -r requirements-dev.txt
-pytest
+# Dev dependencies are already installed by ./setup.sh; just run tests:
+.venv/bin/python -m pytest
 ```
 
-Or without activating:
+Or, if you set up manually:
 
 ```bash
 .venv/bin/pip install -r requirements-dev.txt
@@ -194,15 +197,17 @@ does not respond.
 Install the dev dependencies (includes `psutil` for system metrics):
 
 ```bash
-source .venv/bin/activate
-pip install -r requirements-dev.txt
+.venv/bin/pip install -r requirements-dev.txt
 ```
 
 > **Note:** `mcbot_monitor.py` can run without `python-dotenv` installed —
 > it will skip loading `.env` and print a warning, but all other functionality
 > (system info, serial listing, etc.) will still work.  For full functionality,
 > run it via `.venv/bin/python mcbot_monitor.py` or install all dependencies
-> with `pip install -r requirements.txt`.
+> with `.venv/bin/pip install -r requirements.txt`.
+>
+> If you used `./setup.sh`, all dependencies (including `psutil`) are already
+> installed in `.venv` — no extra step needed.
 
 ### Available modes
 
@@ -219,20 +224,20 @@ pip install -r requirements-dev.txt
 
 ```bash
 # 1. Check system health and environment (safe, no hardware required)
-python mcbot_monitor.py --info
+.venv/bin/python mcbot_monitor.py --info
 
 # 2. See which serial devices are present and if current user can access them
-python mcbot_monitor.py --list-serial
+.venv/bin/python mcbot_monitor.py --list-serial
 
 # 3. Connect and watch for all incoming events for 60 seconds
 #    (stop cyoa_bot.py first – only one process can hold the serial port)
-python mcbot_monitor.py --listen --duration 60
+.venv/bin/python mcbot_monitor.py --listen --duration 60
 
 # 4. Send a one-off test message to confirm outbound path works
-python mcbot_monitor.py --send-test <PUBKEY_PREFIX> --text "hello from monitor"
+.venv/bin/python mcbot_monitor.py --send-test <PUBKEY_PREFIX> --text "hello from monitor"
 
 # 5. Run without flags to get both help text and --info output
-python mcbot_monitor.py
+.venv/bin/python mcbot_monitor.py
 ```
 
 ### What to look for on a Raspberry Pi
