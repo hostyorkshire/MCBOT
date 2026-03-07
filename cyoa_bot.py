@@ -8,14 +8,18 @@ Designed to run continuously on a Raspberry Pi Zero 2W.
 
 Usage::
 
-    python cyoa_bot.py
+    python cyoa_bot.py [--port /dev/ttyUSB0] [--baud 115200]
 
-Configuration is entirely via environment variables (see ``.env.example``).
+CLI options override the corresponding environment variables
+(``SERIAL_PORT``, ``BAUD_RATE``).  All other settings are configured via
+environment variables or the ``.env`` file (see ``.env.example``).
 """
 
 from __future__ import annotations
 
+import argparse
 import asyncio
+import glob
 import logging
 import os
 
@@ -65,6 +69,122 @@ _HELP_CMDS = {"help", "?"}
 
 # Prefixes that some MeshCore clients prepend to commands (e.g. /start, !start)
 _CMD_PREFIXES = ("/", "!", "\\")
+
+
+# ---------------------------------------------------------------------------
+# Serial diagnostics
+# ---------------------------------------------------------------------------
+
+
+def scan_serial_candidates() -> list[str]:
+    """Return a sorted list of candidate serial device paths.
+
+    Scans ``/dev/ttyUSB*`` and ``/dev/ttyACM*`` using :mod:`glob`.  Does not
+    require ``pyserial`` – uses only the standard library.
+
+    Returns:
+        Sorted list of discovered device paths (may be empty).
+    """
+    candidates: list[str] = []
+    for pattern in ("/dev/ttyUSB*", "/dev/ttyACM*"):
+        candidates.extend(glob.glob(pattern))
+    return sorted(candidates)
+
+
+def _connection_error_hint(port: str, baud: int) -> str:
+    """Return a human-readable diagnostic hint for a failed serial connection.
+
+    Args:
+        port: The serial device path that was attempted.
+        baud: The baud rate that was used.
+
+    Returns:
+        Multi-line hint string suitable for printing to the user.
+    """
+    candidates = scan_serial_candidates()
+
+    lines: list[str] = [
+        f"Could not connect to MeshCore device on {port} (baud {baud}).",
+        "",
+    ]
+
+    if candidates:
+        lines.append("Candidate serial devices found on this system:")
+        for dev in candidates:
+            lines.append(f"  {dev}")
+        lines.append("")
+        lines.append("Troubleshooting hints:")
+        lines.append("  • Ensure your user is in the 'dialout' group:")
+        lines.append("      sudo usermod -a -G dialout $USER && newgrp dialout")
+        lines.append("  • Check device permissions:")
+        lines.append("      ls -l /dev/ttyUSB0")
+        lines.append("      ls -l /dev/ttyACM0")
+        alt = next((d for d in candidates if d != port), candidates[0])
+        lines.append(f"  • Try an alternate port, e.g.:  --port {alt}")
+    else:
+        lines.append(
+            "No candidate serial devices found (/dev/ttyUSB*, /dev/ttyACM*)."
+        )
+        lines.append("  → Check USB cable and device power.")
+        lines.append("  → Run: dmesg | tail -20  (look for ttyUSB or ttyACM)")
+        lines.append("")
+        lines.append("Troubleshooting hints:")
+        lines.append("  • Ensure your user is in the 'dialout' group:")
+        lines.append("      sudo usermod -a -G dialout $USER && newgrp dialout")
+        lines.append("  • Check device permissions:")
+        lines.append("      ls -l /dev/ttyUSB0")
+        lines.append("      ls -l /dev/ttyACM0")
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# CLI argument parsing
+# ---------------------------------------------------------------------------
+
+
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse CLI arguments, falling back to environment-variable defaults.
+
+    Args:
+        argv: Argument list (defaults to ``sys.argv[1:]`` when ``None``).
+
+    Returns:
+        Parsed :class:`argparse.Namespace` with ``port`` and ``baud``
+        attributes.
+    """
+    parser = argparse.ArgumentParser(
+        description=(
+            "MeshCore CYOA Bot – connects to a MeshCore LoRa radio over USB "
+            "serial and runs a Create Your Own Adventure story bot."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Environment variables (used as defaults when CLI flags are omitted):\n"
+            "  SERIAL_PORT  Serial device path  (default: /dev/ttyUSB0)\n"
+            "  BAUD_RATE    Serial baud rate    (default: 115200)\n"
+        ),
+    )
+    parser.add_argument(
+        "--port",
+        default=SERIAL_PORT,
+        metavar="DEVICE",
+        help=(
+            "Serial device path, e.g. /dev/ttyUSB0  "
+            "[env: SERIAL_PORT, default: %(default)s]"
+        ),
+    )
+    parser.add_argument(
+        "--baud",
+        type=int,
+        default=BAUD_RATE,
+        metavar="RATE",
+        help=(
+            "Serial baud rate  "
+            "[env: BAUD_RATE, default: %(default)s]"
+        ),
+    )
+    return parser.parse_args(argv)
 
 
 def _normalize_command(text: str) -> str:
@@ -123,8 +243,12 @@ async def send_chunked(
 # ---------------------------------------------------------------------------
 
 
-async def main() -> None:
+async def main(argv: list[str] | None = None) -> None:
     """Connect to MeshCore and run the CYOA bot event loop."""
+    args = _parse_args(argv)
+    serial_port: str = args.port
+    baud_rate: int = args.baud
+
     if not GROQ_API_KEY:
         raise RuntimeError(
             "GROQ_API_KEY environment variable is not set. "
@@ -137,13 +261,10 @@ async def main() -> None:
         max_history=MAX_HISTORY,
     )
 
-    log.info("Connecting to MeshCore at %s (baud %d)…", SERIAL_PORT, BAUD_RATE)
-    mc = await MeshCore.create_serial(SERIAL_PORT, BAUD_RATE)
+    log.info("Connecting to MeshCore at %s (baud %d)…", serial_port, baud_rate)
+    mc = await MeshCore.create_serial(serial_port, baud_rate)
     if mc is None:
-        raise ConnectionError(
-            f"Could not connect to MeshCore device on {SERIAL_PORT}. "
-            "Check the serial port and baud rate."
-        )
+        raise ConnectionError(_connection_error_hint(serial_port, baud_rate))
     log.info("Connected to MeshCore.")
 
     # Fetch contacts so the library's internal cache is populated and we can

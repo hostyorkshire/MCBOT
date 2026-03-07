@@ -159,7 +159,14 @@ Minimum required values in `.env`:
 ```bash
 # Run directly using the venv Python (no activation needed)
 .venv/bin/python cyoa_bot.py
+
+# Override the serial port or baud rate on the command line
+.venv/bin/python cyoa_bot.py --port /dev/ttyACM0
+.venv/bin/python cyoa_bot.py --port /dev/ttyUSB1 --baud 9600
 ```
+
+CLI flags (`--port`, `--baud`) take precedence over environment variables.
+Run `.venv/bin/python cyoa_bot.py --help` for the full option list.
 
 Press **Ctrl+C** to stop. To run in the background with automatic restart on
 reboot, see the [systemd service section](#running-as-a-systemd-service-linux--auto-start-on-reboot) below.
@@ -196,6 +203,13 @@ All settings are loaded from the `.env` file in the project directory:
 | `MAX_CHUNK_SIZE` | `200` | Max characters per LoRa message chunk |
 | `CHUNK_DELAY` | `2.0` | Seconds between consecutive message chunks |
 | `MAX_HISTORY` | `10` | Max conversation turns kept per user (RAM limit) |
+
+`SERIAL_PORT` and `BAUD_RATE` can also be overridden at runtime with the
+`--port` and `--baud` CLI flags (the flags take precedence over env vars):
+
+```bash
+.venv/bin/python cyoa_bot.py --port /dev/ttyACM0 --baud 9600
+```
 
 Full `.env` example (also in `.env.example`):
 
@@ -369,6 +383,36 @@ an unstable serial connection.
 sudo usermod -a -G dialout $USER
 newgrp dialout      # apply immediately; log out and back in to make it permanent
 ```
+
+**`ConnectionError` on startup (no device found)?**
+
+When `cyoa_bot.py` cannot connect it automatically scans for candidate serial
+devices and prints a diagnostic:
+
+```
+Could not connect to MeshCore device on /dev/ttyUSB0 (baud 115200).
+
+Candidate serial devices found on this system:
+  /dev/ttyACM0
+
+Troubleshooting hints:
+  • Ensure your user is in the 'dialout' group:
+      sudo usermod -a -G dialout $USER && newgrp dialout
+  • Check device permissions:
+      ls -l /dev/ttyUSB0
+      ls -l /dev/ttyACM0
+  • Try an alternate port, e.g.:  --port /dev/ttyACM0
+```
+
+Use the suggested `--port` flag to try an alternate device without editing
+`.env`:
+
+```bash
+.venv/bin/python cyoa_bot.py --port /dev/ttyACM0
+```
+
+If no candidate devices appear at all, check USB cable / device power and run
+`dmesg | tail -20` to see whether the kernel detected the device.
 
 ---
 
