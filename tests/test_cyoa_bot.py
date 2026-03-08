@@ -1422,17 +1422,17 @@ class TestBotHandlerIdleInvocation:
 
     @pytest.mark.asyncio
     async def test_non_invoked_random_text_sends_nothing(self, bot):
-        """Plain chat text while idle must produce no reply."""
+        """Plain chat text while idle must send a first-contact help hint."""
         handler, mc, _ = _make_handler(bot)
         await handler.handle("jj00", "hello", "Joe")
-        assert _sent_texts(mc) == []
+        assert EXPECTED_HELP_TEXT in _sent_texts(mc)
 
     @pytest.mark.asyncio
     async def test_non_invoked_sentence_sends_nothing(self, bot):
-        """A plain sentence while idle must produce no reply."""
+        """A plain sentence while idle must send a first-contact help hint."""
         handler, mc, _ = _make_handler(bot)
         await handler.handle("jj00", "how are you doing", "Joe")
-        assert _sent_texts(mc) == []
+        assert EXPECTED_HELP_TEXT in _sent_texts(mc)
 
     @pytest.mark.asyncio
     async def test_invoked_unknown_command_with_prefix_sends_help(self, bot):
@@ -1450,10 +1450,10 @@ class TestBotHandlerIdleInvocation:
 
     @pytest.mark.asyncio
     async def test_plain_unknown_word_sends_nothing(self, bot):
-        """A plain unknown word (no prefix) while idle must produce no reply."""
+        """A plain unknown word (no prefix) while idle must send a first-contact help hint."""
         handler, mc, _ = _make_handler(bot)
         await handler.handle("jj00", "randomword", "Joe")
-        assert _sent_texts(mc) == []
+        assert EXPECTED_HELP_TEXT in _sent_texts(mc)
 
     @pytest.mark.asyncio
     async def test_rate_limit_second_invocation_silenced(self, bot):
@@ -1486,6 +1486,27 @@ class TestBotHandlerIdleInvocation:
         mc.commands.send_msg.reset_mock()
         # Different user – should not be rate-limited.
         await handler.handle("kk11", "/wat", "Kate")
+        assert EXPECTED_HELP_TEXT in _sent_texts(mc)
+
+    @pytest.mark.asyncio
+    async def test_non_invoked_rate_limit_second_message_silenced(self, bot):
+        """Second non-invoked message within cooldown should be silenced."""
+        handler, mc, _ = _make_handler(bot)
+        await handler.handle("jj00", "hello", "Joe")
+        assert EXPECTED_HELP_TEXT in _sent_texts(mc)
+        mc.commands.send_msg.reset_mock()
+        # Second non-invoked message within cooldown – should be silenced.
+        await handler.handle("jj00", "how are you", "Joe")
+        assert _sent_texts(mc) == []
+
+    @pytest.mark.asyncio
+    async def test_non_invoked_rate_limit_independent_per_user(self, bot):
+        """First-contact rate-limiting is per-user; a second user should still get the hint."""
+        handler, mc, _ = _make_handler(bot)
+        await handler.handle("jj00", "hello", "Joe")
+        mc.commands.send_msg.reset_mock()
+        # Different user – should not be rate-limited.
+        await handler.handle("kk11", "hello", "Kate")
         assert EXPECTED_HELP_TEXT in _sent_texts(mc)
 
 
