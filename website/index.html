@@ -199,6 +199,82 @@
       overflow-wrap: anywhere;
     }
 
+    /* ── Commands section ───────────────────────────────────────── */
+    .commands-heading {
+      font-size: 1rem;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 0.8rem;
+    }
+
+    .commands-table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      margin-bottom: 1.6rem;
+      font-size: 0.88rem;
+    }
+    .commands-table th {
+      background: var(--blob-purple);
+      color: white;
+      padding: 0.45rem 0.7rem;
+      font-weight: 900;
+      border: 2px solid var(--ink);
+    }
+    .commands-table td {
+      padding: 0.4rem 0.7rem;
+      border: 2px solid var(--ink);
+      font-weight: 600;
+      vertical-align: top;
+    }
+    .commands-table tr:nth-child(odd) td {
+      background: rgba(0, 201, 177, 0.12);
+    }
+    .commands-table tr:nth-child(even) td {
+      background: rgba(255, 214, 0, 0.12);
+    }
+    .commands-table code {
+      background: var(--ink);
+      color: var(--cream);
+      border-radius: 4px;
+      padding: 0.1em 0.35em;
+      font-size: 0.85em;
+      font-weight: 700;
+    }
+
+    .genres-pill {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+      justify-content: center;
+      margin-bottom: 1.6rem;
+    }
+    .genre-tag {
+      background: var(--blob-orange);
+      color: white;
+      border: 2px solid var(--ink);
+      border-radius: 50px;
+      padding: 0.25rem 0.75rem;
+      font-size: 0.78rem;
+      font-weight: 800;
+      box-shadow: 2px 2px 0 var(--ink);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .genre-tag.default {
+      background: var(--blob-teal);
+    }
+
+    .inline-code {
+      background: var(--ink);
+      color: var(--cream);
+      border-radius: 4px;
+      padding: 0.1em 0.3em;
+      font-size: 0.85em;
+      font-weight: 700;
+    }
+
     /* ── Footer note ────────────────────────────────────────────── */
     .footer-note {
       font-size: 0.78rem;
@@ -297,6 +373,59 @@
           <span>Once added, message StoryBoT — type <code>help</code> to get started!</span>
         </li>
       </ol>
+
+      <!-- Bot commands reference -->
+      <h2 class="commands-heading">Bot Commands</h2>
+      <table class="commands-table" aria-label="Bot command reference">
+        <thead>
+          <tr>
+            <th scope="col">Message</th>
+            <th scope="col">What it does</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>start</code> / <code>new</code> / <code>begin</code></td>
+            <td>Start a new adventure (defaults to wasteland sci-fi)</td>
+          </tr>
+          <tr>
+            <td><code>start &lt;genre&gt;</code></td>
+            <td>Start with a specific genre, e.g. <code>start horror</code> or <code>start 3</code></td>
+          </tr>
+          <tr>
+            <td><code>genres</code></td>
+            <td>List available genres with their numbers</td>
+          </tr>
+          <tr>
+            <td><code>1</code> / <code>2</code> / <code>3</code></td>
+            <td>Choose the numbered story option presented</td>
+          </tr>
+          <tr>
+            <td><code>restart</code> / <code>reset</code></td>
+            <td>Reset your current story and start fresh</td>
+          </tr>
+          <tr>
+            <td><code>help</code> / <code>?</code></td>
+            <td>Show the full command reference</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- Available genres -->
+      <h2 class="commands-heading">Available Genres</h2>
+      <div class="genres-pill" aria-label="Available story genres">
+        <span class="genre-tag default">🏜️ wasteland (default)</span>
+        <span class="genre-tag">☕ cozy</span>
+        <span class="genre-tag">👻 horror</span>
+        <span class="genre-tag">🪖 mil</span>
+        <span class="genre-tag">😂 comedy</span>
+      </div>
+
+      <p class="footer-note">
+        Commands also work with a <code class="inline-code">/</code>,
+        <code class="inline-code">!</code>, or
+        <code class="inline-code">\</code> prefix (e.g. <code class="inline-code">/start horror</code>).
+      </p>
 
       <p class="footer-note">
         StoryBot runs over LoRa mesh radio — no internet needed on the device.<br>
