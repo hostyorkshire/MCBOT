@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MCBOT – Add Me on MeshCore</title>
+  <style>
+    /* ── Reset ─────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* ── Colour palette (bold 70s lava-lamp) ───────────────────── */
+    :root {
+      --blob-orange:  #FF6B00;
+      --blob-yellow:  #FFD600;
+      --blob-pink:    #FF3C8E;
+      --blob-teal:    #00C9B1;
+      --blob-purple:  #7B2FBE;
+      --ink:          #1A0030;
+      --cream:        #FFF8E7;
+      --outline:      4px solid var(--ink);
+    }
+
+    /* ── Page background + blob shapes ─────────────────────────── */
+    body {
+      min-height: 100vh;
+      background-color: var(--cream);
+      font-family: "Trebuchet MS", "Comic Sans MS", sans-serif;
+      color: var(--ink);
+      overflow-x: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem 1rem 4rem;
+      position: relative;
+    }
+
+    /* Background blob decorations */
+    body::before,
+    body::after {
+      content: "";
+      position: fixed;
+      z-index: 0;
+      border-radius: 60% 40% 70% 30% / 50% 60% 40% 50%;
+      filter: blur(2px);
+      opacity: 0.55;
+    }
+    body::before {
+      width: 520px; height: 520px;
+      background: radial-gradient(circle at 35% 40%, var(--blob-orange), var(--blob-yellow));
+      top: -140px; left: -160px;
+    }
+    body::after {
+      width: 480px; height: 480px;
+      background: radial-gradient(circle at 60% 55%, var(--blob-pink), var(--blob-purple));
+      bottom: -140px; right: -140px;
+    }
+
+    /* Extra mid-page blobs via SVG overlay */
+    .blobs-bg {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      overflow: hidden;
+    }
+    .blobs-bg svg { width: 100%; height: 100%; }
+
+    /* ── Card ───────────────────────────────────────────────────── */
+    .card {
+      position: relative;
+      z-index: 1;
+      background: var(--cream);
+      border: var(--outline);
+      border-radius: 28px;
+      box-shadow: 8px 8px 0 var(--ink);
+      max-width: 520px;
+      width: 100%;
+      padding: 2.4rem 2rem 2rem;
+      text-align: center;
+    }
+
+    /* ── Sticker badge (top label) ──────────────────────────────── */
+    .badge {
+      display: inline-block;
+      background: var(--blob-yellow);
+      border: var(--outline);
+      border-radius: 50px;
+      font-size: 0.75rem;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      padding: 0.3rem 1rem;
+      margin-bottom: 1rem;
+      box-shadow: 3px 3px 0 var(--ink);
+    }
+
+    /* ── Heading ────────────────────────────────────────────────── */
+    h1 {
+      font-size: clamp(1.7rem, 5vw, 2.4rem);
+      font-weight: 900;
+      line-height: 1.15;
+      margin-bottom: 0.5rem;
+      /* thick text stroke for sticker look */
+      -webkit-text-stroke: 2px var(--ink);
+      paint-order: stroke fill;
+    }
+    h1 span { color: var(--blob-orange); }
+
+    .tagline {
+      font-size: 1rem;
+      font-weight: 700;
+      margin-bottom: 1.6rem;
+      color: var(--blob-purple);
+    }
+
+    /* ── QR frame ───────────────────────────────────────────────── */
+    .qr-wrapper {
+      position: relative;
+      display: inline-block;
+      margin-bottom: 1.6rem;
+    }
+
+    .qr-img {
+      display: block;
+      width: 220px;
+      height: 220px;
+      border: var(--outline);
+      border-radius: 16px;
+      box-shadow: 5px 5px 0 var(--ink);
+      background: white;
+      /* shown when qr.png loads successfully */
+    }
+
+    /* Placeholder rendered when qr.png is missing */
+    .qr-placeholder {
+      display: none; /* shown via JS */
+      width: 220px;
+      height: 220px;
+      border: var(--outline);
+      border-radius: 16px;
+      box-shadow: 5px 5px 0 var(--ink);
+      background: white;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 0.5rem;
+      padding: 1rem;
+    }
+    .qr-placeholder svg {
+      width: 140px;
+      height: 140px;
+    }
+    .qr-placeholder p {
+      font-size: 0.7rem;
+      font-weight: 700;
+      color: #888;
+      text-align: center;
+    }
+
+    /* ── Steps ──────────────────────────────────────────────────── */
+    .steps-heading {
+      font-size: 1rem;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 0.8rem;
+    }
+
+    ol.steps {
+      list-style: none;
+      text-align: left;
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+      margin-bottom: 1.6rem;
+    }
+    ol.steps li {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.7rem;
+      font-size: 0.95rem;
+      font-weight: 600;
+      line-height: 1.4;
+    }
+    ol.steps li .num {
+      flex-shrink: 0;
+      width: 1.8rem;
+      height: 1.8rem;
+      border: 3px solid var(--ink);
+      border-radius: 50%;
+      background: var(--blob-teal);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.8rem;
+      font-weight: 900;
+      box-shadow: 2px 2px 0 var(--ink);
+    }
+
+    /* ── Info pill ──────────────────────────────────────────────── */
+    .info-pill {
+      display: inline-block;
+      background: var(--blob-pink);
+      color: white;
+      border: var(--outline);
+      border-radius: 50px;
+      padding: 0.45rem 1.2rem;
+      font-size: 0.82rem;
+      font-weight: 800;
+      box-shadow: 3px 3px 0 var(--ink);
+      margin-bottom: 1.4rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    /* ── Footer note ────────────────────────────────────────────── */
+    .footer-note {
+      font-size: 0.78rem;
+      color: #666;
+      margin-top: 0.6rem;
+    }
+    .footer-note a {
+      color: var(--blob-purple);
+      font-weight: 700;
+      text-decoration: underline;
+    }
+
+    /* ── Decorative corner stickers ─────────────────────────────── */
+    .sticker {
+      position: absolute;
+      border: 3px solid var(--ink);
+      border-radius: 50%;
+      font-size: 1.4rem;
+      width: 2.6rem;
+      height: 2.6rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 2px 2px 0 var(--ink);
+    }
+    .sticker-tl { top: -1.1rem; left: -1.1rem; background: var(--blob-yellow); }
+    .sticker-tr { top: -1.1rem; right: -1.1rem; background: var(--blob-orange); }
+    .sticker-bl { bottom: -1.1rem; left: -1.1rem; background: var(--blob-teal); }
+    .sticker-br { bottom: -1.1rem; right: -1.1rem; background: var(--blob-pink); }
+  </style>
+</head>
+<body>
+
+  <!-- ── Decorative blob SVG background ───────────────────────── -->
+  <div class="blobs-bg" aria-hidden="true">
+    <svg viewBox="0 0 1200 800" preserveAspectRatio="xMidYMid slice"
+         xmlns="http://www.w3.org/2000/svg">
+      <ellipse cx="600" cy="400" rx="220" ry="160"
+               fill="#00C9B1" opacity="0.18"
+               transform="rotate(25 600 400)" />
+      <ellipse cx="300" cy="620" rx="180" ry="130"
+               fill="#7B2FBE" opacity="0.14"
+               transform="rotate(-15 300 620)" />
+      <ellipse cx="900" cy="180" rx="200" ry="140"
+               fill="#FFD600" opacity="0.2"
+               transform="rotate(10 900 180)" />
+    </svg>
+  </div>
+
+  <!-- ── Main card ─────────────────────────────────────────────── -->
+  <main>
+    <article class="card" aria-labelledby="page-title">
+
+      <!-- Corner stickers -->
+      <div class="sticker sticker-tl" aria-hidden="true">📡</div>
+      <div class="sticker sticker-tr" aria-hidden="true">✨</div>
+      <div class="sticker sticker-bl" aria-hidden="true">🌊</div>
+      <div class="sticker sticker-br" aria-hidden="true">🎲</div>
+
+      <!-- Badge -->
+      <p class="badge">MeshCore LoRa Network</p>
+
+      <!-- Heading -->
+      <h1 id="page-title">Add Me on<br><span>MCBOT</span></h1>
+      <p class="tagline">Your LoRa-powered choose-your-own-adventure bot 🎮</p>
+
+      <!-- QR code area -->
+      <div class="qr-wrapper" role="img" aria-label="QR code to add MCBOT as a MeshCore contact">
+        <!-- Real QR loaded from qr.png -->
+        <img
+          id="qr-image"
+          class="qr-img"
+          src="qr.png"
+          alt="QR code for adding MCBOT on MeshCore"
+          width="220"
+          height="220"
+        />
+        <!-- Fallback placeholder shown when qr.png is absent -->
+        <div id="qr-placeholder" class="qr-placeholder" aria-hidden="true">
+          <!-- Minimal QR-style pattern as inline SVG -->
+          <svg viewBox="0 0 21 21" xmlns="http://www.w3.org/2000/svg"
+               shape-rendering="crispEdges" aria-hidden="true">
+            <rect width="21" height="21" fill="white"/>
+            <!-- Top-left finder -->
+            <rect x="1" y="1" width="7" height="7" fill="#1A0030"/>
+            <rect x="2" y="2" width="5" height="5" fill="white"/>
+            <rect x="3" y="3" width="3" height="3" fill="#1A0030"/>
+            <!-- Top-right finder -->
+            <rect x="13" y="1" width="7" height="7" fill="#1A0030"/>
+            <rect x="14" y="2" width="5" height="5" fill="white"/>
+            <rect x="15" y="3" width="3" height="3" fill="#1A0030"/>
+            <!-- Bottom-left finder -->
+            <rect x="1" y="13" width="7" height="7" fill="#1A0030"/>
+            <rect x="2" y="14" width="5" height="5" fill="white"/>
+            <rect x="3" y="15" width="3" height="3" fill="#1A0030"/>
+            <!-- Timing pattern -->
+            <rect x="8" y="6" width="1" height="1" fill="#1A0030"/>
+            <rect x="10" y="6" width="1" height="1" fill="#1A0030"/>
+            <rect x="12" y="6" width="1" height="1" fill="#1A0030"/>
+            <rect x="6" y="8" width="1" height="1" fill="#1A0030"/>
+            <rect x="6" y="10" width="1" height="1" fill="#1A0030"/>
+            <rect x="6" y="12" width="1" height="1" fill="#1A0030"/>
+            <!-- Data dots -->
+            <rect x="9"  y="9"  width="1" height="1" fill="#FF6B00"/>
+            <rect x="11" y="9"  width="1" height="1" fill="#FF6B00"/>
+            <rect x="13" y="9"  width="1" height="1" fill="#FF6B00"/>
+            <rect x="9"  y="11" width="1" height="1" fill="#FF6B00"/>
+            <rect x="11" y="11" width="1" height="1" fill="#FF6B00"/>
+            <rect x="13" y="11" width="1" height="1" fill="#FF6B00"/>
+            <rect x="9"  y="13" width="1" height="1" fill="#FF6B00"/>
+            <rect x="11" y="13" width="1" height="1" fill="#FF6B00"/>
+            <rect x="15" y="9"  width="1" height="1" fill="#FF6B00"/>
+            <rect x="15" y="11" width="1" height="1" fill="#FF6B00"/>
+            <rect x="15" y="13" width="1" height="1" fill="#FF6B00"/>
+            <rect x="9"  y="15" width="1" height="1" fill="#FF6B00"/>
+            <rect x="11" y="15" width="1" height="1" fill="#FF6B00"/>
+          </svg>
+          <p>Place your qr.png<br>here (see README)</p>
+        </div>
+      </div>
+
+      <!-- Pink info pill -->
+      <p class="info-pill">📱 Scan with MeshCore App</p>
+
+      <!-- How-to steps -->
+      <h2 class="steps-heading">How to add MCBOT</h2>
+      <ol class="steps" aria-label="Steps to add MCBOT on MeshCore">
+        <li>
+          <span class="num" aria-hidden="true">1</span>
+          <span>Open the <strong>MeshCore</strong> mobile app on your phone.</span>
+        </li>
+        <li>
+          <span class="num" aria-hidden="true">2</span>
+          <span>Go to <strong>Contacts</strong> and tap <strong>Add Contact</strong>.</span>
+        </li>
+        <li>
+          <span class="num" aria-hidden="true">3</span>
+          <span>Choose <strong>Scan QR</strong> and point your camera at the code above.</span>
+        </li>
+        <li>
+          <span class="num" aria-hidden="true">4</span>
+          <span>Once added, message MCBOT — type <code>help</code> to get started!</span>
+        </li>
+      </ol>
+
+      <p class="footer-note">
+        MCBOT runs over LoRa mesh radio — no internet needed on the device.<br>
+        Learn more at
+        <a href="https://github.com/hostyorkshire/MCBOT" target="_blank" rel="noopener">
+          github.com/hostyorkshire/MCBOT
+        </a>
+      </p>
+
+    </article>
+  </main>
+
+  <script>
+    // If qr.png fails to load, swap in the SVG placeholder.
+    (function () {
+      var img = document.getElementById("qr-image");
+      var placeholder = document.getElementById("qr-placeholder");
+
+      function showPlaceholder() {
+        img.style.display = "none";
+        placeholder.style.display = "flex";
+        placeholder.removeAttribute("aria-hidden");
+        // Update the wrapper's accessible label
+        var wrapper = placeholder.closest("[role='img']");
+        if (wrapper) {
+          wrapper.setAttribute("aria-label",
+            "QR code placeholder – place qr.png next to index.html to show the real QR code");
+        }
+      }
+
+      img.addEventListener("error", showPlaceholder);
+
+      // Also handle the case where the browser cached a broken image
+      if (img.complete && img.naturalWidth === 0) {
+        showPlaceholder();
+      }
+    }());
+  </script>
+
+</body>
+</html>
