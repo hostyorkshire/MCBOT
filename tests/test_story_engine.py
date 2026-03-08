@@ -7,12 +7,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from story_engine import (
+    _CHAPTER_CHOICE_SUFFIX,
     DOOM_MAX,
     MAX_CHAPTERS,
     SCENES_PER_CHAPTER,
     Session,
     StoryEngine,
-    _CHAPTER_CHOICE_SUFFIX,
     _format_reply,
     classify_choice,
 )
