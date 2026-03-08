@@ -70,11 +70,11 @@ GENRES_TEXT: str = (
 )
 
 # Onboarding / confirmation messages
-ONBOARD_MSG_1: str = (
-    "I am going to tell you a story, but first here are some commands you may need."
-)
-ONBOARD_MSG_3: str = "Would like to start?"
-TIMEOUT_MSG: str = "Nothing heard - send start again to awake me"
+ONBOARD_MSG_1: str = "I'm going to tell you a short choose-your-own-adventure story."
+COMMANDS_URL: str = "https://adv.intergalactic.it.com/"
+ONBOARD_MSG_2: str = f"Commands & info: {COMMANDS_URL}"
+ONBOARD_MSG_3: str = "Reply YES to begin, or NO to cancel."
+TIMEOUT_MSG: str = "No reply received. Send 'start' when you're ready."
 NO_MSG: str = "Ok. Send start again when you're ready."
 
 # Seconds to wait for yes/no confirmation after sending the start prompt.
@@ -593,7 +593,7 @@ class BotHandler:
             genre,
         )
         await self._send(pubkey_prefix, ONBOARD_MSG_1)
-        await self._send(pubkey_prefix, HELP_TEXT)
+        await self._send(pubkey_prefix, ONBOARD_MSG_2)
         await self._send(pubkey_prefix, ONBOARD_MSG_3)
         self._pending_user_names[pubkey_prefix] = user_name
         self._pending_genres[pubkey_prefix] = genre
