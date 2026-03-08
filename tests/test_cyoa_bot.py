@@ -588,8 +588,11 @@ class TestCheckEnv:
 
     def test_check_env_exits_zero_when_all_set(self, bot, capsys):
         """_check_env exits 0 when GROQ_API_KEY is set."""
-        with patch.object(bot, "GROQ_API_KEY", "fake_key_for_testing"), pytest.raises(SystemExit) as exc_info:
-                bot._check_env()
+        with (
+            patch.object(bot, "GROQ_API_KEY", "fake_key_for_testing"),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            bot._check_env()
         assert exc_info.value.code == 0
         out = capsys.readouterr().out
         assert "GROQ_API_KEY" in out
@@ -611,10 +614,12 @@ class TestCheckEnv:
 
     def test_check_env_shows_model_value(self, bot, capsys):
         """_check_env prints the current GROQ_MODEL value (not secret)."""
-        with patch.object(bot, "GROQ_API_KEY", "fake_key"), patch.object(
-            bot, "GROQ_MODEL", "llama-3.1-8b-instant"
-        ), pytest.raises(SystemExit):
-                    bot._check_env()
+        with (
+            patch.object(bot, "GROQ_API_KEY", "fake_key"),
+            patch.object(bot, "GROQ_MODEL", "llama-3.1-8b-instant"),
+            pytest.raises(SystemExit),
+        ):
+            bot._check_env()
         out = capsys.readouterr().out
         assert "llama-3.1-8b-instant" in out
 
