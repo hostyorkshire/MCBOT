@@ -1534,22 +1534,16 @@ class TestSendChunkedRetry:
         """When the first attempt raises, the function retries and eventually
         succeeds; send_msg should be called twice total."""
         mc = MagicMock()
-        mc.commands.send_msg = AsyncMock(
-            side_effect=[RuntimeError("radio busy"), None]
-        )
+        mc.commands.send_msg = AsyncMock(side_effect=[RuntimeError("radio busy"), None])
         with patch("cyoa_bot.asyncio.sleep", new_callable=AsyncMock):
-            await bot.send_chunked(
-                mc, "dest", "hello", chunk_size=200, delay=0.0, retries=3
-            )
+            await bot.send_chunked(mc, "dest", "hello", chunk_size=200, delay=0.0, retries=3)
         assert mc.commands.send_msg.call_count == 2
 
     @pytest.mark.asyncio
     async def test_retry_sleeps_between_attempts(self, bot):
         """A backoff sleep must be awaited between the first and second attempt."""
         mc = MagicMock()
-        mc.commands.send_msg = AsyncMock(
-            side_effect=[RuntimeError("oops"), None]
-        )
+        mc.commands.send_msg = AsyncMock(side_effect=[RuntimeError("oops"), None])
         sleep_calls: list[float] = []
 
         async def _fake_sleep(secs: float) -> None:
@@ -1579,9 +1573,7 @@ class TestSendChunkedRetry:
         mc.commands.send_msg = AsyncMock(side_effect=RuntimeError("always fails"))
         with patch("cyoa_bot.asyncio.sleep", new_callable=AsyncMock):
             # Should not raise.
-            await bot.send_chunked(
-                mc, "dest", "hello", chunk_size=200, delay=0.0, retries=3
-            )
+            await bot.send_chunked(mc, "dest", "hello", chunk_size=200, delay=0.0, retries=3)
         assert mc.commands.send_msg.call_count == 3
 
     @pytest.mark.asyncio
@@ -1589,11 +1581,11 @@ class TestSendChunkedRetry:
         """When all retries are exhausted, an error must be logged."""
         mc = MagicMock()
         mc.commands.send_msg = AsyncMock(side_effect=RuntimeError("always fails"))
-        with patch("cyoa_bot.asyncio.sleep", new_callable=AsyncMock):
-            with patch("cyoa_bot.log") as mock_log:
-                await bot.send_chunked(
-                    mc, "dest", "hello", chunk_size=200, delay=0.0, retries=2
-                )
+        with (
+            patch("cyoa_bot.asyncio.sleep", new_callable=AsyncMock),
+            patch("cyoa_bot.log") as mock_log,
+        ):
+            await bot.send_chunked(mc, "dest", "hello", chunk_size=200, delay=0.0, retries=2)
         mock_log.error.assert_called_once()
 
     @pytest.mark.asyncio
@@ -1603,11 +1595,11 @@ class TestSendChunkedRetry:
         mc.commands.send_msg = AsyncMock(
             side_effect=[RuntimeError("fail1"), RuntimeError("fail2"), None]
         )
-        with patch("cyoa_bot.asyncio.sleep", new_callable=AsyncMock):
-            with patch("cyoa_bot.log") as mock_log:
-                await bot.send_chunked(
-                    mc, "dest", "hello", chunk_size=200, delay=0.0, retries=3
-                )
+        with (
+            patch("cyoa_bot.asyncio.sleep", new_callable=AsyncMock),
+            patch("cyoa_bot.log") as mock_log,
+        ):
+            await bot.send_chunked(mc, "dest", "hello", chunk_size=200, delay=0.0, retries=3)
         assert mock_log.warning.call_count == 2
 
     @pytest.mark.asyncio
@@ -1622,9 +1614,7 @@ class TestSendChunkedRetry:
 
         with patch("cyoa_bot.asyncio.sleep", side_effect=_fake_sleep):
             # 3-char chunk_size forces two chunks from a 5-char string.
-            await bot.send_chunked(
-                mc, "dest", "hello", chunk_size=3, delay=2.0, retries=1
-            )
+            await bot.send_chunked(mc, "dest", "hello", chunk_size=3, delay=2.0, retries=1)
         # The inter-chunk delay (2.0 s) must appear exactly once.
         assert 2.0 in sleep_calls
 
@@ -1632,11 +1622,7 @@ class TestSendChunkedRetry:
     async def test_succeeds_on_last_retry(self, bot):
         """Should succeed when only the last attempt works."""
         mc = MagicMock()
-        mc.commands.send_msg = AsyncMock(
-            side_effect=[RuntimeError("e1"), RuntimeError("e2"), None]
-        )
+        mc.commands.send_msg = AsyncMock(side_effect=[RuntimeError("e1"), RuntimeError("e2"), None])
         with patch("cyoa_bot.asyncio.sleep", new_callable=AsyncMock):
-            await bot.send_chunked(
-                mc, "dest", "hi", chunk_size=200, delay=0.0, retries=3
-            )
+            await bot.send_chunked(mc, "dest", "hi", chunk_size=200, delay=0.0, retries=3)
         assert mc.commands.send_msg.call_count == 3

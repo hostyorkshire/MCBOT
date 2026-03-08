@@ -448,9 +448,7 @@ class StoryEngine:
                 # Pause – leave session open; player can continue anytime.
                 session.awaiting_chapter_choice = False
                 log.info("Story paused for %s (chapter=%d)", user_key, session.chapter)
-                return (
-                    "Story paused. Send any choice when you're ready to continue your adventure."
-                )
+                return "Story paused. Send any choice when you're ready to continue your adventure."
 
             if digit == "3":
                 # End – close the story.
