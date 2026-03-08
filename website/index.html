@@ -214,6 +214,18 @@
       letter-spacing: 0.05em;
     }
 
+    /* ── Tap link (mobile fallback below QR) ───────────────────── */
+    .qr-tap-link {
+      display: block;
+      margin-top: -0.8rem;
+      margin-bottom: 1.2rem;
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: var(--blob-purple);
+      text-decoration: underline;
+      overflow-wrap: anywhere;
+    }
+
     /* ── Footer note ────────────────────────────────────────────── */
     .footer-note {
       font-size: 0.78rem;
@@ -334,6 +346,13 @@
           <p>Place your qr.png<br>here (see README)</p>
         </div>
       </div>
+
+      <!-- Mobile tap-to-add link (for users who cannot scan the screen) -->
+      <p><a
+        class="qr-tap-link"
+        href="http://meshtastic.local/#/connect?add=true"
+        aria-label="Add contact via MeshCore app"
+        >Tap to add this contact</a></p>
 
       <!-- Pink info pill -->
       <p class="info-pill">📱 Scan with MeshCore App</p>
