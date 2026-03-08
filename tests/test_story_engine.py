@@ -375,3 +375,75 @@ class TestChapterBoundary:
         await eng.advance_story("u1", "1")  # trigger boundary
         session = eng._sessions["u1"]
         assert session.continue_after_ts is None
+
+
+# ---------------------------------------------------------------------------
+# PlayerMemory integration tests
+# ---------------------------------------------------------------------------
+
+
+class TestStoryEnginePlayerMemory:
+    """Verify that StoryEngine correctly delegates to PlayerMemory."""
+
+    def _make_memory(self):
+        """Return a MagicMock that acts like a PlayerMemory."""
+        mem = MagicMock()
+        mem.record_session_start = MagicMock()
+        mem.record_choice = MagicMock()
+        mem.record_session_end = MagicMock()
+        mem.get_personalization_hint = MagicMock(return_value="")
+        return mem
+
+    def _make_engine_with_memory(self, memory):
+        with patch("story_engine.AsyncGroq") as mock_cls:
+            mock_cls.return_value = _make_mock_groq()
+            eng = StoryEngine(api_key="fake-key", player_memory=memory)
+        eng._client = _make_mock_groq()
+        return eng
+
+    @pytest.mark.asyncio
+    async def test_start_story_calls_record_session_start(self):
+        mem = self._make_memory()
+        eng = self._make_engine_with_memory(mem)
+        await eng.start_story("u1", "Alice", genre="horror")
+        mem.record_session_start.assert_called_once_with("u1", "horror")
+
+    @pytest.mark.asyncio
+    async def test_start_story_queries_personalization_hint(self):
+        mem = self._make_memory()
+        eng = self._make_engine_with_memory(mem)
+        await eng.start_story("u1", "Alice")
+        mem.get_personalization_hint.assert_called_once_with("u1")
+
+    @pytest.mark.asyncio
+    async def test_personalization_hint_injected_into_system_prompt(self):
+        """When a non-empty hint is returned, the LLM is called with an extended system prompt."""
+        mem = self._make_memory()
+        mem.get_personalization_hint.return_value = "This player favours bold choices."
+        eng = self._make_engine_with_memory(mem)
+        await eng.start_story("u1", "Alice")
+
+        call_args = eng._client.chat.completions.create.call_args
+        messages = call_args.kwargs.get("messages", call_args.args[0] if call_args.args else [])
+        system_msg = next(m for m in messages if m["role"] == "system")
+        assert "bold" in system_msg["content"]
+
+    @pytest.mark.asyncio
+    async def test_advance_story_records_choice(self):
+        mem = self._make_memory()
+        eng = self._make_engine_with_memory(mem)
+        await eng.start_story("u1", "Bob")
+        # "attack" is a _HIGH_RISK_KEYWORDS member → classify_choice returns 2
+        await eng.advance_story("u1", "attack the guard")
+        mem.record_choice.assert_called_once_with("u1", 2)
+
+    @pytest.mark.asyncio
+    async def test_no_player_memory_does_not_crash(self):
+        """Engine without player_memory works normally."""
+        with patch("story_engine.AsyncGroq") as mock_cls:
+            mock_cls.return_value = _make_mock_groq()
+            eng = StoryEngine(api_key="fake-key")
+        eng._client = _make_mock_groq()
+        await eng.start_story("u1", "Carol")
+        result = await eng.advance_story("u1", "1")
+        assert result  # non-empty reply

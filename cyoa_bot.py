@@ -29,6 +29,7 @@ import types
 from dotenv import load_dotenv
 from meshcore import EventType, MeshCore
 
+from player_memory import PlayerMemory
 from story_engine import DEFAULT_GENRE, GENRES, StoryEngine
 from utils import chunk_message
 
@@ -71,6 +72,7 @@ MAX_HISTORY: int = int(os.getenv("MAX_HISTORY", "10"))
 SEND_RETRIES: int = int(os.getenv("SEND_RETRIES", "3"))
 SEND_RETRY_BASE_DELAY: float = float(os.getenv("SEND_RETRY_BASE_DELAY", "0.5"))
 SEND_RETRY_MAX_DELAY: float = float(os.getenv("SEND_RETRY_MAX_DELAY", "3.0"))
+PLAYER_MEMORY_FILE: str = os.getenv("PLAYER_MEMORY_FILE", "player_memory.json")
 
 HELP_TEXT: str = (
     "Commands:\n"
@@ -918,6 +920,7 @@ async def main(argv: list[str] | None = None) -> None:
         api_key=GROQ_API_KEY,
         model=GROQ_MODEL,
         max_history=MAX_HISTORY,
+        player_memory=PlayerMemory(PLAYER_MEMORY_FILE),
     )
 
     # Dashboard: record start time and error count at module level so the

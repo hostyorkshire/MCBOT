@@ -21,9 +21,12 @@ from __future__ import annotations
 import logging
 import re
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from groq import AsyncGroq
+
+if TYPE_CHECKING:
+    from player_memory import PlayerMemory
 
 log = logging.getLogger(__name__)
 
@@ -332,6 +335,9 @@ class StoryEngine:
         model: Groq model name (default ``"llama3-8b-8192"``).
         max_history: Maximum conversation turns to keep per session.
         max_tokens: Maximum tokens for each LLM response.
+        player_memory: Optional :class:`~player_memory.PlayerMemory` instance
+            used to personalise stories based on past play-style data.  When
+            ``None`` no personalisation is applied.
     """
 
     def __init__(
@@ -340,12 +346,14 @@ class StoryEngine:
         model: str = "llama-3.1-8b-instant",
         max_history: int = 10,
         max_tokens: int = 120,
+        player_memory: PlayerMemory | None = None,
     ) -> None:
         self._client = AsyncGroq(api_key=api_key)
         self._model = model
         self._max_history = max_history
         self._max_tokens = max_tokens
         self._sessions: dict[str, Session] = {}
+        self._player_memory = player_memory
 
     # ------------------------------------------------------------------
     # Session helpers
@@ -392,6 +400,9 @@ class StoryEngine:
         """Begin a fresh adventure for *user_key* and return the opening text.
 
         A new :class:`Session` is always created, replacing any existing one.
+        If a :class:`~player_memory.PlayerMemory` instance is attached, the
+        user's genre preference and play-style are recorded and used to
+        personalise the LLM system prompt.
 
         Args:
             user_key: Unique identifier for the user (pubkey_prefix).
@@ -402,6 +413,10 @@ class StoryEngine:
         session.genre = genre
         self._sessions[user_key] = session
 
+        # Record the session start in player memory (updates genre counts).
+        if self._player_memory is not None:
+            self._player_memory.record_session_start(user_key, genre)
+
         genre_info = GENRES.get(genre, GENRES[DEFAULT_GENRE])
         prompt = (
             f"Begin a new CYOA adventure for {user_name} in the "
@@ -409,7 +424,16 @@ class StoryEngine:
             "Opening scene + 3 numbered choices. Under 220 chars total."
         )
         session.add_message("user", prompt)
-        reply = await self._call_llm(session)
+
+        # Build a personalised system prompt when we have player history.
+        system_prompt: str | None = None
+        if self._player_memory is not None:
+            hint = self._player_memory.get_personalization_hint(user_key)
+            if hint:
+                system_prompt = f"{_SYSTEM_PROMPT}\nPlayer note: {hint}"
+                log.debug("Personalisation hint for %s: %s", user_key, hint)
+
+        reply = await self._call_llm(session, system_prompt=system_prompt)
         session.add_message("assistant", reply)
         log.info(
             "Started new story for %s (%s) in genre '%s'",
@@ -485,6 +509,8 @@ class StoryEngine:
                 # End – close the story.
                 session.awaiting_chapter_choice = False
                 session.finished = True
+                if self._player_memory is not None:
+                    self._player_memory.record_session_end(user_key, completed=True)
                 log.info("Story ended by player %s", user_key)
                 return "Your adventure ends here.\n[END]\n1. Start over\n2. New adventure\n3. Quit"
 
@@ -500,6 +526,10 @@ class StoryEngine:
         baseline_gain = session.chapter
         risk_gain = classify_choice(choice_text)
         session.doom += baseline_gain + risk_gain
+
+        # Record the choice in player memory for future personalisation.
+        if self._player_memory is not None:
+            self._player_memory.record_choice(user_key, risk_gain)
 
         log.debug(
             "Pacing: user=%s chapter=%d scene=%d doom=%d (baseline=%d risk=%d)",
@@ -517,6 +547,8 @@ class StoryEngine:
             reply = await self._call_llm(session, system_prompt=_PERIL_FINALE_SYSTEM)
             session.add_message("assistant", reply)
             session.finished = True
+            if self._player_memory is not None:
+                self._player_memory.record_session_end(user_key, completed=True)
             log.info(
                 "Peril finale for %s (doom=%d >= DOOM_MAX=%d)",
                 user_key,
@@ -533,6 +565,8 @@ class StoryEngine:
                 reply = await self._call_llm(session, system_prompt=_PERIL_FINALE_SYSTEM)
                 session.add_message("assistant", reply)
                 session.finished = True
+                if self._player_memory is not None:
+                    self._player_memory.record_session_end(user_key, completed=True)
                 log.info(
                     "Forced peril finale for %s (chapter=%d >= MAX_CHAPTERS=%d)",
                     user_key,
