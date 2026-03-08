@@ -34,3 +34,7 @@ htmlcov/
 # Dashboard runtime state file (written by the bot; not for version control)
 dashboard/bot_state.json
 dashboard/bot_state.json.tmp
+
+# Session persistence file (written by the bot at runtime; not for version control)
+sessions.json
+sessions.json.tmp

@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import json
+import os
+import tempfile
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from story_engine import (
     _CHAPTER_CHOICE_SUFFIX,
+    DEFAULT_GENRE,
     DOOM_MAX,
     MAX_CHAPTERS,
     SCENES_PER_CHAPTER,
@@ -375,3 +379,208 @@ class TestChapterBoundary:
         await eng.advance_story("u1", "1")  # trigger boundary
         session = eng._sessions["u1"]
         assert session.continue_after_ts is None
+
+
+# ---------------------------------------------------------------------------
+# Session serialisation (to_dict / from_dict)
+# ---------------------------------------------------------------------------
+
+
+class TestSessionSerialisation:
+    def test_to_dict_contains_all_fields(self):
+        s = Session("u1", "Alice", max_history=5)
+        s.chapter = 3
+        s.scene_in_chapter = 7
+        s.doom = 42
+        s.finished = True
+        s.genre = "horror"
+        d = s.to_dict()
+        assert d["user_key"] == "u1"
+        assert d["user_name"] == "Alice"
+        assert d["max_history"] == 5
+        assert d["chapter"] == 3
+        assert d["scene_in_chapter"] == 7
+        assert d["doom"] == 42
+        assert d["finished"] is True
+        assert d["genre"] == "horror"
+        assert "history" in d
+        assert "started_at" in d
+
+    def test_from_dict_round_trip(self):
+        s = Session("u2", "Bob", max_history=8)
+        s.add_message("user", "hello")
+        s.add_message("assistant", "world")
+        s.chapter = 2
+        s.doom = 10
+        s.genre = "cozy"
+        d = s.to_dict()
+        restored = Session.from_dict(d)
+        assert restored.user_key == s.user_key
+        assert restored.user_name == s.user_name
+        assert restored.max_history == s.max_history
+        assert restored.history == s.history
+        assert restored.chapter == s.chapter
+        assert restored.doom == s.doom
+        assert restored.genre == s.genre
+        assert restored.finished == s.finished
+
+    def test_from_dict_missing_optional_keys_use_defaults(self):
+        minimal = {"user_key": "u3", "user_name": "Charlie"}
+        s = Session.from_dict(minimal)
+        assert s.chapter == 1
+        assert s.scene_in_chapter == 0
+        assert s.doom == 0
+        assert s.finished is False
+        assert s.awaiting_chapter_choice is False
+        assert s.continue_after_ts is None
+        assert s.genre == DEFAULT_GENRE
+        assert s.history == []
+
+    def test_from_dict_preserves_history(self):
+        msgs = [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "hello"}]
+        d = {"user_key": "u4", "user_name": "Dana", "history": msgs}
+        s = Session.from_dict(d)
+        assert s.history == msgs
+
+
+# ---------------------------------------------------------------------------
+# StoryEngine session persistence (save_sessions / load_sessions)
+# ---------------------------------------------------------------------------
+
+
+def _make_engine_with_file(sessions_file: str) -> StoryEngine:
+    """Return a StoryEngine backed by *sessions_file* with a mocked Groq client."""
+    with patch("story_engine.AsyncGroq") as mock_cls:
+        mock_cls.return_value = _make_mock_groq()
+        eng = StoryEngine(api_key="fake-key", sessions_file=sessions_file)
+    eng._client = _make_mock_groq()
+    return eng
+
+
+class TestSessionPersistence:
+    def test_save_sessions_creates_file(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "sessions.json")
+            eng = _make_engine_with_file(path)
+            eng._sessions["u1"] = Session("u1", "Alice", max_history=5)
+            eng.save_sessions()
+            assert os.path.exists(path)
+
+    def test_save_and_load_round_trip(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "sessions.json")
+            eng = _make_engine_with_file(path)
+            s = Session("u1", "Alice", max_history=5)
+            s.add_message("user", "hello")
+            s.chapter = 2
+            s.doom = 15
+            eng._sessions["u1"] = s
+            eng.save_sessions()
+
+            # Load into a fresh engine.
+            eng2 = _make_engine_with_file(path)
+            assert eng2.has_session("u1")
+            restored = eng2._sessions["u1"]
+            assert restored.user_name == "Alice"
+            assert restored.chapter == 2
+            assert restored.doom == 15
+            assert restored.history == s.history
+
+    def test_load_sessions_missing_file_is_safe(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "no_such_file.json")
+            # Should not raise – file simply doesn't exist yet.
+            eng = _make_engine_with_file(path)
+            assert not eng.has_session("u1")
+
+    def test_load_sessions_corrupt_file_is_safe(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "sessions.json")
+            with open(path, "w") as fh:
+                fh.write("not valid json {{{{")
+            # Should not raise – bad JSON is logged and ignored.
+            eng = _make_engine_with_file(path)
+            assert not eng.has_session("u1")
+
+    def test_load_sessions_skips_corrupt_entry(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "sessions.json")
+            # One valid entry, one invalid (missing required keys).
+            data = {
+                "u1": {"user_key": "u1", "user_name": "Alice"},
+                "u2": None,  # invalid – cannot call .get() on None
+            }
+            with open(path, "w") as fh:
+                json.dump(data, fh)
+            eng = _make_engine_with_file(path)
+            # u1 loads fine; u2 is silently skipped.
+            assert eng.has_session("u1")
+            assert not eng.has_session("u2")
+
+    def test_save_sessions_no_file_configured_does_nothing(self):
+        with patch("story_engine.AsyncGroq") as mock_cls:
+            mock_cls.return_value = _make_mock_groq()
+            eng = StoryEngine(api_key="fake-key")  # no sessions_file
+        eng._sessions["u1"] = Session("u1", "Alice", max_history=5)
+        # Must not raise even without a configured file.
+        eng.save_sessions()
+
+    def test_clear_session_saves_to_disk(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "sessions.json")
+            eng = _make_engine_with_file(path)
+            eng._sessions["u1"] = Session("u1", "Alice", max_history=5)
+            eng._sessions["u2"] = Session("u2", "Bob", max_history=5)
+            eng.save_sessions()
+
+            eng.clear_session("u1")
+
+            # Reload from disk and verify u1 is gone.
+            eng2 = _make_engine_with_file(path)
+            assert not eng2.has_session("u1")
+            assert eng2.has_session("u2")
+
+    @pytest.mark.asyncio
+    async def test_start_story_persists_session(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "sessions.json")
+            eng = _make_engine_with_file(path)
+            await eng.start_story("u1", "Alice")
+            assert os.path.exists(path)
+            with open(path) as fh:
+                data = json.load(fh)
+            assert "u1" in data
+
+    @pytest.mark.asyncio
+    async def test_advance_story_persists_session(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "sessions.json")
+            eng = _make_engine_with_file(path)
+            await eng.start_story("u1", "Alice")
+            await eng.advance_story("u1", "1")
+            with open(path) as fh:
+                data = json.load(fh)
+            # History should contain the advance turn.
+            assert len(data["u1"]["history"]) >= 4
+
+    @pytest.mark.asyncio
+    async def test_session_survives_engine_restart(self):
+        """A session saved by one engine can be resumed by a fresh engine."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "sessions.json")
+
+            eng1 = _make_engine_with_file(path)
+            await eng1.start_story("u1", "Alice", genre="horror")
+            await eng1.advance_story("u1", "2")
+
+            saved_chapter = eng1._sessions["u1"].chapter
+            saved_doom = eng1._sessions["u1"].doom
+
+            # Simulate a restart by creating a brand-new engine from the same file.
+            eng2 = _make_engine_with_file(path)
+            assert eng2.has_session("u1")
+            restored = eng2._sessions["u1"]
+            assert restored.user_name == "Alice"
+            assert restored.genre == "horror"
+            assert restored.chapter == saved_chapter
+            assert restored.doom == saved_doom

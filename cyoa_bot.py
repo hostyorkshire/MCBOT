@@ -71,6 +71,7 @@ MAX_HISTORY: int = int(os.getenv("MAX_HISTORY", "10"))
 SEND_RETRIES: int = int(os.getenv("SEND_RETRIES", "3"))
 SEND_RETRY_BASE_DELAY: float = float(os.getenv("SEND_RETRY_BASE_DELAY", "0.5"))
 SEND_RETRY_MAX_DELAY: float = float(os.getenv("SEND_RETRY_MAX_DELAY", "3.0"))
+SESSIONS_FILE: str | None = os.getenv("SESSIONS_FILE", "sessions.json") or None
 
 HELP_TEXT: str = (
     "Commands:\n"
@@ -918,6 +919,7 @@ async def main(argv: list[str] | None = None) -> None:
         api_key=GROQ_API_KEY,
         model=GROQ_MODEL,
         max_history=MAX_HISTORY,
+        sessions_file=SESSIONS_FILE,
     )
 
     # Dashboard: record start time and error count at module level so the

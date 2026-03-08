@@ -18,7 +18,9 @@ None of these counters are ever shown to the user.
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import re
 import time
 from typing import Any
@@ -323,6 +325,52 @@ class Session:
         """Return a shallow copy of the message history."""
         return list(self.history)
 
+    def to_dict(self) -> dict:
+        """Serialise this session to a plain dict suitable for JSON storage."""
+        return {
+            "user_key": self.user_key,
+            "user_name": self.user_name,
+            "max_history": self.max_history,
+            "history": self.history,
+            "chapter": self.chapter,
+            "scene_in_chapter": self.scene_in_chapter,
+            "doom": self.doom,
+            "continue_after_ts": self.continue_after_ts,
+            "awaiting_chapter_choice": self.awaiting_chapter_choice,
+            "finished": self.finished,
+            "genre": self.genre,
+            "started_at": self.started_at,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> Session:
+        """Reconstruct a :class:`Session` from a previously serialised dict.
+
+        Unknown or missing keys are silently replaced with safe defaults so
+        that sessions saved by an older version of the code can still be loaded
+        without crashing.
+
+        Args:
+            data: Dict produced by :meth:`to_dict`.
+
+        Returns:
+            A fully initialised :class:`Session` instance.
+        """
+        obj = cls.__new__(cls)
+        obj.user_key = data["user_key"]
+        obj.user_name = data["user_name"]
+        obj.max_history = data.get("max_history", 10)
+        obj.history = data.get("history", [])
+        obj.chapter = data.get("chapter", 1)
+        obj.scene_in_chapter = data.get("scene_in_chapter", 0)
+        obj.doom = data.get("doom", 0)
+        obj.continue_after_ts = data.get("continue_after_ts")
+        obj.awaiting_chapter_choice = data.get("awaiting_chapter_choice", False)
+        obj.finished = data.get("finished", False)
+        obj.genre = data.get("genre", DEFAULT_GENRE)
+        obj.started_at = data.get("started_at", time.time())
+        return obj
+
 
 class StoryEngine:
     """Generates CYOA story content using the Groq LLM API.
@@ -332,6 +380,9 @@ class StoryEngine:
         model: Groq model name (default ``"llama3-8b-8192"``).
         max_history: Maximum conversation turns to keep per session.
         max_tokens: Maximum tokens for each LLM response.
+        sessions_file: Optional path to a JSON file used to persist sessions
+            across restarts.  When ``None`` (the default) sessions are kept
+            only in memory and lost on restart.
     """
 
     def __init__(
@@ -340,12 +391,16 @@ class StoryEngine:
         model: str = "llama-3.1-8b-instant",
         max_history: int = 10,
         max_tokens: int = 120,
+        sessions_file: str | None = None,
     ) -> None:
         self._client = AsyncGroq(api_key=api_key)
         self._model = model
         self._max_history = max_history
         self._max_tokens = max_tokens
         self._sessions: dict[str, Session] = {}
+        self._sessions_file = sessions_file
+        if self._sessions_file:
+            self.load_sessions()
 
     # ------------------------------------------------------------------
     # Session helpers
@@ -359,6 +414,53 @@ class StoryEngine:
         """Delete the session for *user_key*, if any."""
         self._sessions.pop(user_key, None)
         log.info("Cleared session for %s", user_key)
+        self.save_sessions()
+
+    def save_sessions(self) -> None:
+        """Persist all active sessions to :attr:`_sessions_file`.
+
+        Writes atomically via a ``.tmp`` file so a mid-write crash cannot
+        corrupt the saved data.  Silently does nothing when
+        :attr:`_sessions_file` is ``None``.
+        """
+        if not self._sessions_file:
+            return
+        data = {key: session.to_dict() for key, session in self._sessions.items()}
+        tmp_path = self._sessions_file + ".tmp"
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as fh:
+                json.dump(data, fh, indent=2)
+            os.replace(tmp_path, self._sessions_file)
+            log.debug("Saved %d session(s) to %s", len(data), self._sessions_file)
+        except OSError as exc:
+            log.error("Failed to save sessions to %s: %s", self._sessions_file, exc)
+
+    def load_sessions(self) -> None:
+        """Load sessions from :attr:`_sessions_file`.
+
+        Silently does nothing when :attr:`_sessions_file` is ``None`` or the
+        file does not yet exist.  Corrupt entries are skipped with a warning
+        so that a single bad record cannot prevent the rest from loading.
+        """
+        if not self._sessions_file:
+            return
+        try:
+            with open(self._sessions_file, encoding="utf-8") as fh:
+                data = json.load(fh)
+        except FileNotFoundError:
+            log.info("No sessions file at %s – starting with empty sessions", self._sessions_file)
+            return
+        except (OSError, json.JSONDecodeError) as exc:
+            log.error("Failed to load sessions from %s: %s", self._sessions_file, exc)
+            return
+        loaded = 0
+        for user_key, session_data in data.items():
+            try:
+                self._sessions[user_key] = Session.from_dict(session_data)
+                loaded += 1
+            except Exception as exc:
+                log.warning("Skipping corrupt session for %s: %s", user_key, exc)
+        log.info("Loaded %d session(s) from %s", loaded, self._sessions_file)
 
     def get_sessions_info(self) -> list[dict]:
         """Return a snapshot of all active sessions for dashboard display.
@@ -417,6 +519,7 @@ class StoryEngine:
             user_key,
             genre,
         )
+        self.save_sessions()
         return reply
 
     async def advance_story(self, user_key: str, choice: Any) -> str:
@@ -473,12 +576,14 @@ class StoryEngine:
                     user_key,
                     session.chapter,
                 )
+                self.save_sessions()
                 return reply
 
             if digit == "2":
                 # Pause – leave session open; player can continue anytime.
                 session.awaiting_chapter_choice = False
                 log.info("Story paused for %s (chapter=%d)", user_key, session.chapter)
+                self.save_sessions()
                 return "Story paused. Send any choice when you're ready to continue your adventure."
 
             if digit == "3":
@@ -486,6 +591,7 @@ class StoryEngine:
                 session.awaiting_chapter_choice = False
                 session.finished = True
                 log.info("Story ended by player %s", user_key)
+                self.save_sessions()
                 return "Your adventure ends here.\n[END]\n1. Start over\n2. New adventure\n3. Quit"
 
             # Unrecognised input – re-show the chapter prompt.
@@ -523,6 +629,7 @@ class StoryEngine:
                 session.doom,
                 DOOM_MAX,
             )
+            self.save_sessions()
             return reply
 
         # --- Chapter end ---
@@ -539,6 +646,7 @@ class StoryEngine:
                     session.chapter,
                     MAX_CHAPTERS,
                 )
+                self.save_sessions()
                 return reply
 
             # Normal chapter end: cliffhanger + chapter-choice prompt.
@@ -555,12 +663,14 @@ class StoryEngine:
                 completed_chapter,
                 user_key,
             )
+            self.save_sessions()
             return reply
 
         # --- Normal scene advance ---
         session.add_message("user", f"I choose option {choice_text}.")
         reply = await self._call_llm(session)
         session.add_message("assistant", reply)
+        self.save_sessions()
         return reply
 
     # ------------------------------------------------------------------
