@@ -22,6 +22,7 @@ import asyncio
 import glob
 import logging
 import os
+import time
 import types
 
 from dotenv import load_dotenv
@@ -98,6 +99,14 @@ _NO_CMDS = {"no", "n", "nope", "not now", "later", "cancel"}
 
 # Prefixes that some MeshCore clients prepend to commands (e.g. /start, !start)
 _CMD_PREFIXES = ("/", "!", "\\")
+
+# All command tokens that the bot recognises (used for invocation detection).
+_ALL_KNOWN_CMDS: frozenset[str] = frozenset(
+    _HELP_CMDS | _GENRES_CMDS | _START_CMDS | _RESET_CMDS | _CHOICES
+)
+
+# Minimum seconds between help-hint replies to the same idle user.
+_HELP_HINT_COOLDOWN: float = 300.0
 
 
 # ---------------------------------------------------------------------------
@@ -264,6 +273,25 @@ def _parse_command(text: str) -> tuple[str, str]:
     if not parts:
         return "", ""
     return parts[0], parts[1].strip() if len(parts) > 1 else ""
+
+
+def _is_invoked(text: str, command: str) -> bool:
+    """Return ``True`` when a message is an explicit bot invocation.
+
+    A message is considered an invocation when it begins with a command prefix
+    (``/``, ``!``, or ``\\``) *or* when its normalised command token matches a
+    known command.  Plain unknown words are **not** treated as invocations so
+    the bot stays silent when users chat among themselves.
+
+    Args:
+        text: Raw message text as received.
+        command: Normalised command token returned by :func:`_parse_command`.
+
+    Returns:
+        ``True`` if the message is an explicit bot invocation.
+    """
+    raw = text.strip()
+    return bool(raw and raw[0] in _CMD_PREFIXES) or command in _ALL_KNOWN_CMDS
 
 
 # Ordered list of genre IDs matching insertion order of the GENRES dict.
@@ -587,6 +615,8 @@ class BotHandler:
         # against double-dispatch when both CONTACT_MSG_RECV and
         # MESSAGES_WAITING fire for the same incoming message.
         self._processing: set[str] = set()
+        # pubkey_prefix → monotonic timestamp of the last help-hint sent.
+        self._last_help_hint: dict[str, float] = {}
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -784,6 +814,24 @@ class BotHandler:
 
         # --- unknown command, no active session ---
         else:
+            if not _is_invoked(text, command):
+                log.debug(
+                    "Non-invoked message %r from %s (%s) – ignoring",
+                    command,
+                    user_name,
+                    pubkey_prefix,
+                )
+                return
+            now = time.monotonic()
+            last = self._last_help_hint.get(pubkey_prefix, float("-inf"))
+            if now - last < _HELP_HINT_COOLDOWN:
+                log.debug(
+                    "Help hint rate-limited for %s (%s) – skipping",
+                    user_name,
+                    pubkey_prefix,
+                )
+                return
+            self._last_help_hint[pubkey_prefix] = now
             log.info(
                 "Unknown command %r from %s (%s) – sending help",
                 command,

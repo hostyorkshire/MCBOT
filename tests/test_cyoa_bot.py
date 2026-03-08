@@ -1391,3 +1391,116 @@ class TestBotHandlerProcessingGuard:
         story_engine.advance_story.assert_called_once_with("bb22", "1")
 
         handler._processing.discard("aa11")
+
+
+# ---------------------------------------------------------------------------
+# Tests: _is_invoked
+# ---------------------------------------------------------------------------
+
+
+class TestIsInvoked:
+    """_is_invoked should detect explicit bot invocations correctly."""
+
+    def test_slash_prefix_is_invoked(self, bot):
+        assert bot._is_invoked("/wat", "wat") is True
+
+    def test_exclamation_prefix_is_invoked(self, bot):
+        assert bot._is_invoked("!wat", "wat") is True
+
+    def test_backslash_prefix_is_invoked(self, bot):
+        assert bot._is_invoked("\\wat", "wat") is True
+
+    def test_known_command_plain_is_invoked(self, bot):
+        assert bot._is_invoked("help", "help") is True
+
+    def test_known_command_start_is_invoked(self, bot):
+        assert bot._is_invoked("start", "start") is True
+
+    def test_known_command_genres_is_invoked(self, bot):
+        assert bot._is_invoked("genres", "genres") is True
+
+    def test_known_command_choice_is_invoked(self, bot):
+        assert bot._is_invoked("1", "1") is True
+
+    def test_plain_unknown_word_not_invoked(self, bot):
+        assert bot._is_invoked("hello", "hello") is False
+
+    def test_plain_sentence_not_invoked(self, bot):
+        assert bot._is_invoked("how are you", "how") is False
+
+
+# ---------------------------------------------------------------------------
+# Tests: BotHandler – idle invocation and rate-limiting
+# ---------------------------------------------------------------------------
+
+
+class TestBotHandlerIdleInvocation:
+    """Idle users (no session, not pending) – invocation and rate-limit rules."""
+
+    @pytest.mark.asyncio
+    async def test_non_invoked_random_text_sends_nothing(self, bot):
+        """Plain chat text while idle must produce no reply."""
+        handler, mc, _ = _make_handler(bot)
+        await handler.handle("jj00", "hello", "Joe")
+        assert _sent_texts(mc) == []
+
+    @pytest.mark.asyncio
+    async def test_non_invoked_sentence_sends_nothing(self, bot):
+        """A plain sentence while idle must produce no reply."""
+        handler, mc, _ = _make_handler(bot)
+        await handler.handle("jj00", "how are you doing", "Joe")
+        assert _sent_texts(mc) == []
+
+    @pytest.mark.asyncio
+    async def test_invoked_unknown_command_with_prefix_sends_help(self, bot):
+        """An unknown command with a / prefix while idle sends HELP_TEXT."""
+        handler, mc, _ = _make_handler(bot)
+        await handler.handle("jj00", "/wat", "Joe")
+        assert EXPECTED_HELP_TEXT in _sent_texts(mc)
+
+    @pytest.mark.asyncio
+    async def test_invoked_unknown_command_exclamation_sends_help(self, bot):
+        """An unknown command with a ! prefix while idle sends HELP_TEXT."""
+        handler, mc, _ = _make_handler(bot)
+        await handler.handle("jj00", "!unknown", "Joe")
+        assert EXPECTED_HELP_TEXT in _sent_texts(mc)
+
+    @pytest.mark.asyncio
+    async def test_plain_unknown_word_sends_nothing(self, bot):
+        """A plain unknown word (no prefix) while idle must produce no reply."""
+        handler, mc, _ = _make_handler(bot)
+        await handler.handle("jj00", "randomword", "Joe")
+        assert _sent_texts(mc) == []
+
+    @pytest.mark.asyncio
+    async def test_rate_limit_second_invocation_silenced(self, bot):
+        """Sending an unknown invoked command twice should only trigger one help reply."""
+        handler, mc, _ = _make_handler(bot)
+        await handler.handle("jj00", "/wat", "Joe")
+        mc.commands.send_msg.reset_mock()
+        # Second call within the cooldown window should be silenced.
+        await handler.handle("jj00", "/wat", "Joe")
+        assert _sent_texts(mc) == []
+
+    @pytest.mark.asyncio
+    async def test_rate_limit_allows_after_cooldown(self, bot):
+        """After the cooldown expires the help hint may be sent again."""
+        handler, mc, _ = _make_handler(bot)
+        await handler.handle("jj00", "/wat", "Joe")
+        # Artificially expire the cooldown by back-dating the timestamp.
+        handler._last_help_hint["jj00"] = (
+            handler._last_help_hint["jj00"] - bot._HELP_HINT_COOLDOWN - 1.0
+        )
+        mc.commands.send_msg.reset_mock()
+        await handler.handle("jj00", "/wat", "Joe")
+        assert EXPECTED_HELP_TEXT in _sent_texts(mc)
+
+    @pytest.mark.asyncio
+    async def test_rate_limit_independent_per_user(self, bot):
+        """Rate-limiting is per-user; a second user should still get the hint."""
+        handler, mc, _ = _make_handler(bot)
+        await handler.handle("jj00", "/wat", "Joe")
+        mc.commands.send_msg.reset_mock()
+        # Different user – should not be rate-limited.
+        await handler.handle("kk11", "/wat", "Kate")
+        assert EXPECTED_HELP_TEXT in _sent_texts(mc)
