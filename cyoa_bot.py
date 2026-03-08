@@ -59,7 +59,7 @@ HELP_TEXT: str = (
     "- start / new / begin <genre name or number>\n"
     "- restart / reset \u2014 reset\n"
     "\n"
-    "(If prompted: 1/2/3 or text. 60s confirm.)"
+    "(If prompted: 1/2/3 or text. 180s confirm.)"
 )
 
 # Compact genre list sent in response to the ``genres`` command.
@@ -79,7 +79,7 @@ NO_MSG: str = "Ok. Send start again when you're ready."
 
 # Seconds to wait for yes/no confirmation after sending the start prompt.
 # Kept as a module-level constant so tests can patch it to a small value.
-START_CONFIRM_TIMEOUT: float = 60.0
+START_CONFIRM_TIMEOUT: float = 180.0
 
 # Valid single-digit choice commands
 _CHOICES = {"1", "2", "3"}
