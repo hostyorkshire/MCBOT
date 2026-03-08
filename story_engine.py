@@ -16,6 +16,35 @@ from groq import AsyncGroq
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
+# Genre registry – ordered so numbering matches the ``genres`` command output.
+# ---------------------------------------------------------------------------
+
+GENRES: dict[str, dict[str, str]] = {
+    "wasteland": {
+        "name": "Post-Apoc Sci-Fi Survival",
+        "desc": "post-apoc sci-fi survival",
+    },
+    "cozy": {
+        "name": "Cozy Fantasy",
+        "desc": "low stakes, puzzly, whimsical",
+    },
+    "horror": {
+        "name": "Horror",
+        "desc": "lost signals, things following you, unreliable comms",
+    },
+    "mil": {
+        "name": "Military / Espionage",
+        "desc": "missions, intel, moral tradeoffs",
+    },
+    "comedy": {
+        "name": "Comedy",
+        "desc": "absurd outcomes, fast resets",
+    },
+}
+
+DEFAULT_GENRE: str = "wasteland"
+
+# ---------------------------------------------------------------------------
 # System prompt sent with every request.  It primes the model to produce
 # short, numbered-choice output that fits within LoRa packet constraints.
 # ---------------------------------------------------------------------------
@@ -155,22 +184,36 @@ class StoryEngine:
     # Story actions
     # ------------------------------------------------------------------
 
-    async def start_story(self, user_key: str, user_name: str) -> str:
+    async def start_story(
+        self, user_key: str, user_name: str, genre: str = DEFAULT_GENRE
+    ) -> str:
         """Begin a fresh adventure for *user_key* and return the opening text.
 
         A new :class:`Session` is always created, replacing any existing one.
+
+        Args:
+            user_key: Unique identifier for the user (pubkey_prefix).
+            user_name: Human-readable name used in the opening prompt.
+            genre: Genre ID from :data:`GENRES` (default: ``"wasteland"``).
         """
         session = Session(user_key, user_name, self._max_history)
         self._sessions[user_key] = session
 
+        genre_info = GENRES.get(genre, GENRES[DEFAULT_GENRE])
         prompt = (
-            f"Begin a new CYOA adventure for {user_name}. "
+            f"Begin a new CYOA adventure for {user_name} in the "
+            f"{genre_info['name']} genre ({genre_info['desc']}). "
             "Opening scene + 3 numbered choices. Under 220 chars total."
         )
         session.add_message("user", prompt)
         reply = await self._call_llm(session)
         session.add_message("assistant", reply)
-        log.info("Started new story for %s (%s)", user_name, user_key)
+        log.info(
+            "Started new story for %s (%s) in genre '%s'",
+            user_name,
+            user_key,
+            genre,
+        )
         return reply
 
     async def advance_story(self, user_key: str, choice: Any) -> str:

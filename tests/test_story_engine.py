@@ -212,3 +212,84 @@ class TestFormatReply:
     def test_text_without_choices_returned_unchanged(self):
         text = "No choices here."
         assert _format_reply(text) == text
+
+
+# ---------------------------------------------------------------------------
+# StoryEngine – genre support tests
+# ---------------------------------------------------------------------------
+
+
+class TestStoryEngineGenre:
+    @pytest.mark.asyncio
+    async def test_start_story_default_genre_prompt_includes_wasteland(self, engine: StoryEngine):
+        """Default genre ('wasteland') appears in the opening user prompt."""
+        await engine.start_story("u1", "Alice")
+        first_msg = engine._sessions["u1"].history[0]
+        assert first_msg["role"] == "user"
+        assert "wasteland" in first_msg["content"].lower() or "post-apoc" in first_msg["content"].lower()
+
+    @pytest.mark.asyncio
+    async def test_start_story_horror_genre_in_prompt(self, engine: StoryEngine):
+        """Selecting horror genre includes 'horror' in the opening prompt."""
+        await engine.start_story("u1", "Bob", genre="horror")
+        first_msg = engine._sessions["u1"].history[0]
+        assert "horror" in first_msg["content"].lower()
+
+    @pytest.mark.asyncio
+    async def test_start_story_cozy_genre_in_prompt(self, engine: StoryEngine):
+        """Selecting cozy genre includes relevant description in prompt."""
+        await engine.start_story("u1", "Carol", genre="cozy")
+        first_msg = engine._sessions["u1"].history[0]
+        assert "cozy" in first_msg["content"].lower()
+
+    @pytest.mark.asyncio
+    async def test_start_story_mil_genre_in_prompt(self, engine: StoryEngine):
+        """Selecting mil genre includes relevant description in prompt."""
+        await engine.start_story("u1", "Dave", genre="mil")
+        first_msg = engine._sessions["u1"].history[0]
+        assert "mil" in first_msg["content"].lower() or "military" in first_msg["content"].lower()
+
+    @pytest.mark.asyncio
+    async def test_start_story_comedy_genre_in_prompt(self, engine: StoryEngine):
+        """Selecting comedy genre includes relevant description in prompt."""
+        await engine.start_story("u1", "Eve", genre="comedy")
+        first_msg = engine._sessions["u1"].history[0]
+        assert "comedy" in first_msg["content"].lower()
+
+    @pytest.mark.asyncio
+    async def test_start_story_unknown_genre_falls_back_to_default(self, engine: StoryEngine):
+        """Unknown genre falls back to the default genre without raising.
+
+        This is defensive programming: the bot layer validates genres before
+        calling start_story(), but the engine should remain safe if called
+        directly with an unrecognised genre ID.
+        """
+        await engine.start_story("u1", "Frank", genre="notreal")
+        assert engine.has_session("u1")
+        first_msg = engine._sessions["u1"].history[0]
+        # Falls back to wasteland default
+        assert "post-apoc" in first_msg["content"].lower() or "wasteland" in first_msg["content"].lower()
+
+    @pytest.mark.asyncio
+    async def test_start_story_genre_kwarg_omitted_uses_default(self, engine: StoryEngine):
+        """Omitting genre kwarg behaves identically to genre='wasteland'."""
+        expected = "Dark cave.\n1. Enter\n2. Run\n3. Shout"
+        engine._client = _make_mock_groq(expected)
+        result = await engine.start_story("u1", "Grace")
+        assert result == expected
+
+    def test_genres_dict_has_required_keys(self):
+        from story_engine import GENRES, DEFAULT_GENRE
+        for gid, info in GENRES.items():
+            assert "name" in info
+            assert "desc" in info
+        assert DEFAULT_GENRE in GENRES
+
+    def test_default_genre_is_wasteland(self):
+        from story_engine import DEFAULT_GENRE
+        assert DEFAULT_GENRE == "wasteland"
+
+    def test_genres_contains_all_required(self):
+        from story_engine import GENRES
+        required = {"wasteland", "cozy", "horror", "mil", "comedy"}
+        assert required <= set(GENRES.keys())

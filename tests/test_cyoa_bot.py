@@ -651,8 +651,8 @@ class TestCheckEnv:
 
 
 EXPECTED_HELP_TEXT = (
-    "help/?=this. start/new/begin=prompt to begin. restart/reset=reset+start over. "
-    "In story: reply 1/2/3 or send text. After start, answer yes/no in 60s."
+    "help/?=this. genres=list genres. start/new/begin [genre|#]=begin story. "
+    "restart/reset=reset. In story: 1/2/3 or text. 60s to confirm."
 )
 
 
@@ -817,7 +817,7 @@ class TestBotHandlerConfirmYes:
         await handler.handle("cc33", "start", "Carol")
         mc.commands.send_msg.reset_mock()
         await handler.handle("cc33", yes_word, "Carol")
-        story_engine.start_story.assert_called_once_with("cc33", "Carol")
+        story_engine.start_story.assert_called_once_with("cc33", "Carol", genre="wasteland")
 
     @pytest.mark.asyncio
     async def test_yes_sends_story_text(self, bot):
@@ -968,3 +968,242 @@ class TestBotHandlerReset:
         assert old_task is not None
         assert old_task.cancelled() or old_task.done()
         assert handler.is_pending_confirm("ff66")
+
+
+# ---------------------------------------------------------------------------
+# Tests: _parse_command
+# ---------------------------------------------------------------------------
+
+
+class TestParseCommand:
+    """_parse_command should return (command, arg) pairs."""
+
+    def test_plain_command_no_arg(self, bot):
+        assert bot._parse_command("start") == ("start", "")
+
+    def test_command_with_arg(self, bot):
+        assert bot._parse_command("start horror") == ("start", "horror")
+
+    def test_slash_command_with_arg(self, bot):
+        assert bot._parse_command("/start horror") == ("start", "horror")
+
+    def test_exclamation_command_with_arg(self, bot):
+        assert bot._parse_command("!start horror") == ("start", "horror")
+
+    def test_backslash_command_with_arg(self, bot):
+        assert bot._parse_command("\\start horror") == ("start", "horror")
+
+    def test_command_with_numeric_arg(self, bot):
+        assert bot._parse_command("start 2") == ("start", "2")
+
+    def test_uppercase_command_with_arg(self, bot):
+        assert bot._parse_command("/START Horror") == ("start", "horror")
+
+    def test_whitespace_trimmed(self, bot):
+        assert bot._parse_command("  /start  horror  ") == ("start", "horror")
+
+    def test_empty_string(self, bot):
+        assert bot._parse_command("") == ("", "")
+
+    def test_plain_command_only(self, bot):
+        assert bot._parse_command("genres") == ("genres", "")
+
+    def test_slash_genres(self, bot):
+        assert bot._parse_command("/genres") == ("genres", "")
+
+
+# ---------------------------------------------------------------------------
+# Tests: _resolve_genre
+# ---------------------------------------------------------------------------
+
+
+class TestResolveGenre:
+    """_resolve_genre should map genre IDs and numbers to genre IDs."""
+
+    def test_known_genre_id_returned(self, bot):
+        assert bot._resolve_genre("horror") == "horror"
+
+    def test_unknown_genre_returns_none(self, bot):
+        assert bot._resolve_genre("scifi") is None
+
+    def test_empty_string_returns_none(self, bot):
+        assert bot._resolve_genre("") is None
+
+    def test_number_1_maps_to_wasteland(self, bot):
+        assert bot._resolve_genre("1") == "wasteland"
+
+    def test_number_2_maps_to_cozy(self, bot):
+        assert bot._resolve_genre("2") == "cozy"
+
+    def test_number_3_maps_to_horror(self, bot):
+        assert bot._resolve_genre("3") == "horror"
+
+    def test_number_4_maps_to_mil(self, bot):
+        assert bot._resolve_genre("4") == "mil"
+
+    def test_number_5_maps_to_comedy(self, bot):
+        assert bot._resolve_genre("5") == "comedy"
+
+    def test_out_of_range_number_returns_none(self, bot):
+        assert bot._resolve_genre("99") is None
+
+    def test_zero_returns_none(self, bot):
+        assert bot._resolve_genre("0") is None
+
+    def test_negative_returns_none(self, bot):
+        assert bot._resolve_genre("-1") is None
+
+    def test_genre_case_insensitive(self, bot):
+        assert bot._resolve_genre("HORROR") == "horror"
+        assert bot._resolve_genre("Cozy") == "cozy"
+
+    def test_all_genre_ids_resolve(self, bot):
+        for gid in bot.GENRES:
+            assert bot._resolve_genre(gid) == gid
+
+
+# ---------------------------------------------------------------------------
+# Tests: BotHandler – genres command
+# ---------------------------------------------------------------------------
+
+
+class TestBotHandlerGenres:
+    """genres command should send the compact genre list."""
+
+    @pytest.mark.asyncio
+    async def test_genres_sends_genres_text(self, bot):
+        handler, mc, _ = _make_handler(bot)
+        await handler.handle("aa11", "genres", "Alice")
+        assert bot.GENRES_TEXT in _sent_texts(mc)
+
+    @pytest.mark.asyncio
+    async def test_slash_genres_sends_genres_text(self, bot):
+        handler, mc, _ = _make_handler(bot)
+        await handler.handle("aa11", "/genres", "Alice")
+        assert bot.GENRES_TEXT in _sent_texts(mc)
+
+    @pytest.mark.asyncio
+    async def test_exclamation_genres_sends_genres_text(self, bot):
+        handler, mc, _ = _make_handler(bot)
+        await handler.handle("aa11", "!genres", "Alice")
+        assert bot.GENRES_TEXT in _sent_texts(mc)
+
+    @pytest.mark.asyncio
+    async def test_genres_does_not_start_story(self, bot):
+        handler, mc, story_engine = _make_handler(bot)
+        await handler.handle("aa11", "genres", "Alice")
+        story_engine.start_story.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_genres_text_contains_all_genre_ids(self, bot):
+        for gid in bot.GENRES:
+            assert gid in bot.GENRES_TEXT
+
+    def test_genres_cmds_constant(self, bot):
+        assert "genres" in bot._GENRES_CMDS
+
+
+# ---------------------------------------------------------------------------
+# Tests: BotHandler – genre selection via start <genre|#>
+# ---------------------------------------------------------------------------
+
+
+class TestBotHandlerGenreStart:
+    """start <genre|#> should onboard with the specified genre."""
+
+    @pytest.mark.asyncio
+    async def test_start_horror_triggers_onboarding(self, bot):
+        handler, mc, _ = _make_handler(bot)
+        await handler.handle("gg77", "start horror", "Grace")
+        assert len(_sent_texts(mc)) == 3
+        assert handler.is_pending_confirm("gg77")
+
+    @pytest.mark.asyncio
+    async def test_start_horror_then_yes_calls_engine_with_genre(self, bot):
+        handler, mc, story_engine = _make_handler(bot)
+        await handler.handle("gg77", "start horror", "Grace")
+        mc.commands.send_msg.reset_mock()
+        await handler.handle("gg77", "yes", "Grace")
+        story_engine.start_story.assert_called_once_with("gg77", "Grace", genre="horror")
+
+    @pytest.mark.asyncio
+    async def test_start_numeric_2_maps_to_cozy(self, bot):
+        handler, mc, story_engine = _make_handler(bot)
+        await handler.handle("gg77", "start 2", "Grace")
+        mc.commands.send_msg.reset_mock()
+        await handler.handle("gg77", "yes", "Grace")
+        story_engine.start_story.assert_called_once_with("gg77", "Grace", genre="cozy")
+
+    @pytest.mark.asyncio
+    async def test_start_numeric_3_maps_to_horror(self, bot):
+        handler, mc, story_engine = _make_handler(bot)
+        await handler.handle("gg77", "start 3", "Grace")
+        mc.commands.send_msg.reset_mock()
+        await handler.handle("gg77", "yes", "Grace")
+        story_engine.start_story.assert_called_once_with("gg77", "Grace", genre="horror")
+
+    @pytest.mark.asyncio
+    async def test_start_no_arg_defaults_to_wasteland(self, bot):
+        handler, mc, story_engine = _make_handler(bot)
+        await handler.handle("gg77", "start", "Grace")
+        mc.commands.send_msg.reset_mock()
+        await handler.handle("gg77", "yes", "Grace")
+        story_engine.start_story.assert_called_once_with("gg77", "Grace", genre="wasteland")
+
+    @pytest.mark.asyncio
+    async def test_unknown_genre_sends_error_not_onboarding(self, bot):
+        handler, mc, _ = _make_handler(bot)
+        await handler.handle("gg77", "start badgenre", "Grace")
+        texts = _sent_texts(mc)
+        assert len(texts) == 1
+        assert "Unknown genre" in texts[0]
+        assert not handler.is_pending_confirm("gg77")
+
+    @pytest.mark.asyncio
+    async def test_unknown_genre_hints_genres_command(self, bot):
+        handler, mc, _ = _make_handler(bot)
+        await handler.handle("gg77", "start badgenre", "Grace")
+        texts = _sent_texts(mc)
+        assert "genres" in texts[0].lower()
+
+    @pytest.mark.asyncio
+    async def test_new_horror_triggers_horror_genre(self, bot):
+        handler, mc, story_engine = _make_handler(bot)
+        await handler.handle("gg77", "new horror", "Grace")
+        mc.commands.send_msg.reset_mock()
+        await handler.handle("gg77", "yes", "Grace")
+        story_engine.start_story.assert_called_once_with("gg77", "Grace", genre="horror")
+
+    @pytest.mark.asyncio
+    async def test_begin_comedy_triggers_comedy_genre(self, bot):
+        handler, mc, story_engine = _make_handler(bot)
+        await handler.handle("gg77", "begin comedy", "Grace")
+        mc.commands.send_msg.reset_mock()
+        await handler.handle("gg77", "yes", "Grace")
+        story_engine.start_story.assert_called_once_with("gg77", "Grace", genre="comedy")
+
+    @pytest.mark.asyncio
+    async def test_slash_start_horror(self, bot):
+        handler, mc, story_engine = _make_handler(bot)
+        await handler.handle("gg77", "/start horror", "Grace")
+        mc.commands.send_msg.reset_mock()
+        await handler.handle("gg77", "yes", "Grace")
+        story_engine.start_story.assert_called_once_with("gg77", "Grace", genre="horror")
+
+    @pytest.mark.asyncio
+    async def test_reset_with_genre_uses_that_genre(self, bot):
+        """restart <genre> should onboard and then start story in that genre."""
+        handler, mc, story_engine = _make_handler(bot)
+        await handler.handle("gg77", "restart mil", "Grace")
+        mc.commands.send_msg.reset_mock()
+        await handler.handle("gg77", "yes", "Grace")
+        story_engine.start_story.assert_called_once_with("gg77", "Grace", genre="mil")
+
+    @pytest.mark.asyncio
+    async def test_reset_no_genre_defaults_to_wasteland(self, bot):
+        """restart with no genre should default to wasteland."""
+        handler, mc, story_engine = _make_handler(bot)
+        await handler.handle("gg77", "restart", "Grace")
+        mc.commands.send_msg.reset_mock()
+        await handler.handle("gg77", "yes", "Grace")
+        story_engine.start_story.assert_called_once_with("gg77", "Grace", genre="wasteland")
