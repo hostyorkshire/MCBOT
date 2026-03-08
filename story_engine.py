@@ -9,8 +9,8 @@ Invisible pacing / doom system
 Every call to :meth:`StoryEngine.advance_story` accumulates *doom* for the
 active session.  When doom reaches :data:`DOOM_MAX` the story ends in a peril
 finale.  Every :data:`SCENES_PER_CHAPTER` scenes (without doom triggering) the
-chapter ends with an in-world cliffhanger and the user must wait
-:data:`CHAPTER_COOLDOWN` seconds (24 h) before continuing.  After
+chapter ends with an in-world cliffhanger and the user is offered three
+choices: **Continue**, **Pause**, or **End** the story.  After
 :data:`MAX_CHAPTERS` chapters the story is force-ended in peril.
 
 None of these counters are ever shown to the user.
@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import logging
 import re
-import time
 from typing import Any
 
 from groq import AsyncGroq
@@ -61,16 +60,23 @@ _PERIL_FINALE_SYSTEM: str = (
 )
 
 #: System prompt used when a chapter ends without doom triggering.
+#: The LLM is asked for a short cliffhanger narrative only; the fixed
+#: chapter-choice options are appended in code via :data:`_CHAPTER_CHOICE_SUFFIX`.
 _CLIFFHANGER_SYSTEM: str = (
     "You are a narrator for a text-based 'Create Your Own Adventure' (CYOA) "
     "story delivered over a LoRa mesh radio network.  STRICT RULES:\n"
-    "1. Keep EVERY response under 220 characters total.\n"
+    "1. Keep EVERY response under 160 characters total.\n"
     "2. Write a vivid in-world cliffhanger that leaves the adventurer in "
-    "nail-biting suspense.  Use an in-world reason (nightfall, a magic seal, "
-    "exhaustion, etc.) to explain why they must rest and continue tomorrow.\n"
-    "3. Do NOT include numbered choices — the journey resumes tomorrow.\n"
+    "nail-biting suspense.\n"
+    "3. Do NOT include numbered choices.\n"
     "4. Do NOT mention doom counters, chapter numbers, or scene numbers."
 )
+
+#: Fixed choices appended after the cliffhanger when a chapter ends.
+_CHAPTER_CHOICE_SUFFIX: str = "\n1. Continue\n2. Pause\n3. End"
+
+#: The suffix without its leading newline, used when it heads a fresh line.
+_CHAPTER_CHOICE_BODY: str = _CHAPTER_CHOICE_SUFFIX.lstrip("\n")
 
 # ---------------------------------------------------------------------------
 # Regex helpers for normalising LLM choice output.
@@ -128,16 +134,16 @@ def _format_reply(text: str) -> str:
 # ---------------------------------------------------------------------------
 
 #: Doom score at which the story ends in a peril finale.
-DOOM_MAX: int = 20
+DOOM_MAX: int = 500
 
-#: Number of scenes per chapter before a cliffhanger is triggered.
-SCENES_PER_CHAPTER: int = 4
+#: Number of scenes per chapter before a chapter-choice prompt is triggered.
+SCENES_PER_CHAPTER: int = 150
 
-#: Seconds the user must wait between chapters (24 hours).
+#: Kept for reference; no longer used to gate chapter transitions.
 CHAPTER_COOLDOWN: float = 86400.0
 
 #: Maximum number of chapters before a forced peril finale.
-MAX_CHAPTERS: int = 3
+MAX_CHAPTERS: int = 10
 
 # ---------------------------------------------------------------------------
 # Genre registry
@@ -278,7 +284,11 @@ class Session:
         doom: Accumulated doom score; triggers a peril finale at
             :data:`DOOM_MAX`.
         continue_after_ts: Epoch-seconds timestamp after which the user may
-            continue (``None`` means no gate is active).
+            continue (``None`` means no gate is active).  Reserved for future
+            use; not set by chapter boundaries.
+        awaiting_chapter_choice: ``True`` when the engine is waiting for the
+            user to choose Continue (1), Pause (2), or End (3) at a chapter
+            boundary.
         finished: ``True`` once the story has reached a peril finale.
     """
 
@@ -292,6 +302,7 @@ class Session:
         self.scene_in_chapter: int = 0
         self.doom: int = 0
         self.continue_after_ts: float | None = None
+        self.awaiting_chapter_choice: bool = False
         self.finished: bool = False
 
     def add_message(self, role: str, content: str) -> None:
@@ -386,12 +397,21 @@ class StoryEngine:
         Pacing control flow (all invisible to the user):
 
         1. If the story is already finished, return a prompt to start a new one.
-        2. If a 24 h continuation gate is active, return an in-world wait message.
+        2. If ``awaiting_chapter_choice`` is set, interpret the choice as a
+           chapter-boundary decision:
+
+           * ``1`` – Continue: advance to the next chapter immediately and
+             generate the opening scene of the new chapter.
+           * ``2`` – Pause: leave the session open (no cooldown) and return a
+             message that the player can continue anytime.
+           * ``3`` – End: mark the story finished and return an end screen.
+           * Any other input: re-show the chapter-choice prompt.
+
         3. Otherwise increment ``scene_in_chapter`` and accumulate doom
            (``chapter + classify_choice(choice)``).
         4. ``doom >= DOOM_MAX`` → peril finale; mark ``finished``.
-        5. ``scene_in_chapter >= SCENES_PER_CHAPTER`` → chapter cliffhanger,
-           advance chapter, set ``continue_after_ts``.
+        5. ``scene_in_chapter >= SCENES_PER_CHAPTER`` → chapter cliffhanger +
+           chapter-choice prompt (1/2/3); set ``awaiting_chapter_choice``.
            If ``chapter >= MAX_CHAPTERS`` → forced peril finale instead.
         """
         session = self._sessions.get(user_key)
@@ -402,21 +422,49 @@ class StoryEngine:
         if session.finished:
             return "Your tale has ended. Send 'start' to begin a new adventure."
 
-        # Continuation gate: enforce 24 h cooldown between chapters.
-        now = time.time()
-        if session.continue_after_ts is not None and now < session.continue_after_ts:
-            remaining = int(session.continue_after_ts - now)
-            hours, remainder = divmod(remaining, 3600)
-            minutes = remainder // 60
-            when = f"{hours}h {minutes}m" if hours > 0 else f"{minutes}m"
-            return (
-                f"The path is sealed by ancient magic. Return in {when} to continue your journey."
-            )
-
-        # Gate expired – clear it before advancing.
-        session.continue_after_ts = None
-
         choice_text = str(choice).strip()
+
+        # ------------------------------------------------------------------
+        # Chapter-boundary choice handling
+        # ------------------------------------------------------------------
+        if session.awaiting_chapter_choice:
+            # Normalise to the first character so "1 Continue" etc. also work.
+            digit = choice_text[:1]
+
+            if digit == "1":
+                # Continue – start the new chapter immediately.
+                session.awaiting_chapter_choice = False
+                session.add_message("user", "Continue the adventure.")
+                reply = await self._call_llm(session)
+                session.add_message("assistant", reply)
+                log.info(
+                    "Chapter resumed for %s (chapter=%d)",
+                    user_key,
+                    session.chapter,
+                )
+                return reply
+
+            if digit == "2":
+                # Pause – leave session open; player can continue anytime.
+                session.awaiting_chapter_choice = False
+                log.info("Story paused for %s (chapter=%d)", user_key, session.chapter)
+                return (
+                    "Story paused. Send any choice when you're ready to continue your adventure."
+                )
+
+            if digit == "3":
+                # End – close the story.
+                session.awaiting_chapter_choice = False
+                session.finished = True
+                log.info("Story ended by player %s", user_key)
+                return "Your adventure ends here.\n[END]\n1. Start over\n2. New adventure\n3. Quit"
+
+            # Unrecognised input – re-show the chapter prompt.
+            return f"Chapter complete! Choose:\n{_CHAPTER_CHOICE_BODY}"
+
+        # ------------------------------------------------------------------
+        # Normal story advancement
+        # ------------------------------------------------------------------
 
         # Accumulate doom.
         session.scene_in_chapter += 1
@@ -464,19 +512,19 @@ class StoryEngine:
                 )
                 return reply
 
-            # Normal chapter end: cliffhanger + gate.
+            # Normal chapter end: cliffhanger + chapter-choice prompt.
             session.add_message("user", f"I choose: {choice_text}.")
             reply = await self._call_llm(session, system_prompt=_CLIFFHANGER_SYSTEM)
+            reply = f"{reply}{_CHAPTER_CHOICE_SUFFIX}"
             session.add_message("assistant", reply)
             completed_chapter = session.chapter
             session.chapter += 1
             session.scene_in_chapter = 0
-            session.continue_after_ts = now + CHAPTER_COOLDOWN
+            session.awaiting_chapter_choice = True
             log.info(
-                "Chapter %d complete for %s – cliffhanger sent, gate set until %.0f",
+                "Chapter %d complete for %s – cliffhanger sent, awaiting choice",
                 completed_chapter,
                 user_key,
-                session.continue_after_ts,
             )
             return reply
 
