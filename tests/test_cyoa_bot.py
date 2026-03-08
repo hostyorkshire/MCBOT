@@ -1212,3 +1212,182 @@ class TestBotHandlerGenreStart:
         mc.commands.send_msg.reset_mock()
         await handler.handle("gg77", "yes", "Grace")
         story_engine.start_story.assert_called_once_with("gg77", "Grace", genre="wasteland")
+
+
+# ---------------------------------------------------------------------------
+# Tests: _split_story_choices
+# ---------------------------------------------------------------------------
+
+
+class TestSplitStoryChoices:
+    """_split_story_choices must correctly separate narrative from choices."""
+
+    def test_splits_narrative_from_dot_choices(self, bot):
+        narrative, choices = bot._split_story_choices(
+            "You stand at a crossroads.\n1. Go left\n2. Go right\n3. Wait"
+        )
+        assert narrative == "You stand at a crossroads."
+        assert choices == "1. Go left\n2. Go right\n3. Wait"
+
+    def test_splits_narrative_from_paren_choices(self, bot):
+        narrative, choices = bot._split_story_choices(
+            "A wolf growls.\n1) Run\n2) Fight\n3) Hide"
+        )
+        assert narrative == "A wolf growls."
+        assert choices == "1) Run\n2) Fight\n3) Hide"
+
+    def test_no_choices_returns_empty_narrative(self, bot):
+        narrative, choices = bot._split_story_choices("Just a plain message.")
+        assert narrative == ""
+        assert choices == "Just a plain message."
+
+    def test_choices_only_returns_empty_narrative(self, bot):
+        narrative, choices = bot._split_story_choices("1. A\n2. B\n3. C")
+        assert narrative == ""
+        assert choices == "1. A\n2. B\n3. C"
+
+    def test_end_tag_becomes_narrative(self, bot):
+        narrative, choices = bot._split_story_choices(
+            "[END]\n1. Restart\n2. New adventure\n3. Quit"
+        )
+        assert narrative == "[END]"
+        assert choices == "1. Restart\n2. New adventure\n3. Quit"
+
+    def test_multiline_narrative(self, bot):
+        text = (
+            "You enter the cave.\nDarkness surrounds you.\n"
+            "1. Light torch\n2. Feel ahead\n3. Retreat"
+        )
+        narrative, choices = bot._split_story_choices(text)
+        assert narrative == "You enter the cave.\nDarkness surrounds you."
+        assert choices == "1. Light torch\n2. Feel ahead\n3. Retreat"
+
+    def test_empty_string_returns_empty_pair(self, bot):
+        narrative, choices = bot._split_story_choices("")
+        assert narrative == ""
+        assert choices == ""
+
+    def test_gate_message_no_choices_unchanged(self, bot):
+        msg = "The path is sealed. Return in 2h 30m to continue."
+        narrative, choices = bot._split_story_choices(msg)
+        assert narrative == ""
+        assert choices == msg
+
+
+# ---------------------------------------------------------------------------
+# Tests: BotHandler – story and choices sent as separate messages
+# ---------------------------------------------------------------------------
+
+
+class TestBotHandlerStoryChoicesSplit:
+    """After start/advance, narrative and choices must arrive in separate messages."""
+
+    @pytest.mark.asyncio
+    async def test_yes_sends_narrative_then_choices(self, bot):
+        handler, mc, story_engine = _make_handler(bot)
+        story_engine.start_story = AsyncMock(
+            return_value="You wake in a cave.\n1. Explore\n2. Wait\n3. Shout"
+        )
+        await handler.handle("hh88", "start", "Harriet")
+        mc.commands.send_msg.reset_mock()
+        await handler.handle("hh88", "yes", "Harriet")
+        texts = _sent_texts(mc)
+        assert texts[0] == "You wake in a cave."
+        assert texts[1] == "1. Explore\n2. Wait\n3. Shout"
+
+    @pytest.mark.asyncio
+    async def test_yes_always_two_messages_when_choices_present(self, bot):
+        handler, mc, story_engine = _make_handler(bot)
+        story_engine.start_story = AsyncMock(
+            return_value="Short.\n1. A\n2. B\n3. C"
+        )
+        await handler.handle("hh88", "start", "Harriet")
+        mc.commands.send_msg.reset_mock()
+        await handler.handle("hh88", "yes", "Harriet")
+        # Narrative + choices = exactly 2 sends (plus possible intra-chunk sends
+        # but chunk_size=1000 in tests so no extra chunking).
+        assert len(_sent_texts(mc)) == 2
+
+    @pytest.mark.asyncio
+    async def test_choice_advance_sends_narrative_then_choices(self, bot):
+        handler, mc, story_engine = _make_handler(bot)
+        story_engine.advance_story = AsyncMock(
+            return_value="You step forward.\n1. Keep going\n2. Turn back\n3. Hide"
+        )
+        story_engine.has_session = MagicMock(return_value=True)
+        await handler.handle("hh88", "1", "Harriet")
+        texts = _sent_texts(mc)
+        assert texts[0] == "You step forward."
+        assert texts[1] == "1. Keep going\n2. Turn back\n3. Hide"
+
+    @pytest.mark.asyncio
+    async def test_non_story_response_single_message(self, bot):
+        """A response without choices (e.g. cooldown gate) is a single message."""
+        handler, mc, story_engine = _make_handler(bot)
+        story_engine.advance_story = AsyncMock(
+            return_value="The path is sealed. Return in 2h."
+        )
+        story_engine.has_session = MagicMock(return_value=True)
+        await handler.handle("hh88", "1", "Harriet")
+        texts = _sent_texts(mc)
+        assert len(texts) == 1
+        assert "The path is sealed" in texts[0]
+
+    @pytest.mark.asyncio
+    async def test_story_only_no_choices_single_message(self, bot):
+        """A response that is pure narrative (no choices) sends one message."""
+        handler, mc, story_engine = _make_handler(bot)
+        story_engine.start_story = AsyncMock(return_value="Once upon a time…")
+        await handler.handle("hh88", "start", "Harriet")
+        mc.commands.send_msg.reset_mock()
+        await handler.handle("hh88", "yes", "Harriet")
+        texts = _sent_texts(mc)
+        assert len(texts) == 1
+        assert "Once upon a time" in texts[0]
+
+
+# ---------------------------------------------------------------------------
+# Tests: BotHandler – duplicate / concurrent message guard
+# ---------------------------------------------------------------------------
+
+
+class TestBotHandlerProcessingGuard:
+    """A message that arrives while the same user's previous message is still
+    being handled must be silently dropped."""
+
+    @pytest.mark.asyncio
+    async def test_message_dropped_while_user_in_processing(self, bot):
+        handler, mc, story_engine = _make_handler(bot)
+        story_engine.has_session = MagicMock(return_value=True)
+
+        # Simulate another coroutine holding the processing slot.
+        handler._processing.add("ii99")
+
+        await handler.handle("ii99", "1", "Ivan")
+
+        story_engine.advance_story.assert_not_called()
+        mc.commands.send_msg.assert_not_called()
+
+        handler._processing.discard("ii99")
+
+    @pytest.mark.asyncio
+    async def test_processing_slot_released_after_handle(self, bot):
+        """After handle() completes the user's slot must be free."""
+        handler, mc, story_engine = _make_handler(bot)
+        await handler.handle("ii99", "help", "Ivan")
+        assert "ii99" not in handler._processing
+
+    @pytest.mark.asyncio
+    async def test_different_users_not_blocked(self, bot):
+        """A held processing slot for one user must not block another user."""
+        handler, mc, story_engine = _make_handler(bot)
+        story_engine.has_session = MagicMock(return_value=True)
+
+        # User A is being processed.
+        handler._processing.add("aa11")
+
+        # User B must still be handled normally.
+        await handler.handle("bb22", "1", "Bob")
+        story_engine.advance_story.assert_called_once_with("bb22", "1")
+
+        handler._processing.discard("aa11")

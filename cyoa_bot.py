@@ -298,6 +298,38 @@ def _resolve_genre(arg: str) -> str | None:
     return None
 
 
+def _split_story_choices(text: str) -> tuple[str, str]:
+    """Split an LLM story reply into ``(narrative, choices)``.
+
+    Scans for the first line that starts with ``1.`` or ``1)`` followed by a
+    space and treats everything before it as the narrative and the rest as the
+    choices block.
+
+    .. note::
+        The :func:`story_engine._format_reply` post-processor always normalises
+        LLM output so that choices appear as ``1. …`` / ``2. …`` / ``3. …`` on
+        separate lines before this function is ever called.  The ``1.`` and
+        ``1)`` prefixes therefore cover all valid formats produced by the
+        pipeline.
+
+    Args:
+        text: Post-processed LLM reply string (output of :func:`_format_reply`).
+
+    Returns:
+        ``(narrative, choices)`` where either part may be empty.  When no
+        choices prefix is found the entire *text* is returned as *choices*
+        with an empty *narrative*.
+    """
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("1. ") or stripped.startswith("1) "):
+            narrative = "\n".join(lines[:i]).strip()
+            choices = "\n".join(lines[i:]).strip()
+            return narrative, choices
+    return "", text.strip()
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -551,6 +583,10 @@ class BotHandler:
         self._pending_user_names: dict[str, str] = {}
         # pubkey_prefix → genre ID stored at confirmation start
         self._pending_genres: dict[str, str] = {}
+        # pubkey_prefixes whose message is currently being processed; guards
+        # against double-dispatch when both CONTACT_MSG_RECV and
+        # MESSAGES_WAITING fire for the same incoming message.
+        self._processing: set[str] = set()
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -559,6 +595,29 @@ class BotHandler:
     async def _send(self, destination: str, text: str) -> None:
         """Send *text* to *destination* using :func:`send_chunked`."""
         await send_chunked(self.mc, destination, text, self.max_chunk_size, self.chunk_delay)
+
+    async def _send_story(self, destination: str, response: str) -> None:
+        """Send a story *response*, splitting narrative from choices into two separate messages.
+
+        The narrative (scene description) is sent first; the numbered choices
+        are sent as a second message after :attr:`chunk_delay` seconds.  This
+        ensures the user always sees the options in a distinct, final message
+        before being expected to reply.
+
+        If *response* contains no choices prefix the whole text is sent as a
+        single message (e.g. gate / cooldown messages).
+
+        The inter-message delay is only inserted when a narrative was actually
+        sent first – if there is no narrative the choices are the opening
+        message and no preceding delay is required.
+        """
+        narrative, choices = _split_story_choices(response)
+        if narrative:
+            await self._send(destination, narrative)
+            # Allow the radio channel to clear before sending the choices.
+            await asyncio.sleep(self.chunk_delay)
+        if choices:
+            await self._send(destination, choices)
 
     def _cancel_pending(self, pubkey_prefix: str) -> None:
         """Cancel any running timeout task for *pubkey_prefix* and clear state."""
@@ -611,11 +670,32 @@ class BotHandler:
     async def handle(self, pubkey_prefix: str, text: str, user_name: str) -> None:
         """Dispatch an incoming message from *pubkey_prefix*.
 
+        A per-user processing guard prevents the same user's message from being
+        handled twice concurrently (e.g. when both ``CONTACT_MSG_RECV`` and
+        ``MESSAGES_WAITING`` fire for the same inbound packet).
+
         Args:
             pubkey_prefix: Sender's pubkey prefix (used as user key).
             text: Raw message text exactly as received.
             user_name: Friendly display name for the sender.
         """
+        if pubkey_prefix in self._processing:
+            log.debug(
+                "Dropping duplicate/concurrent message from %s (%s) – "
+                "previous message is still being handled",
+                user_name,
+                pubkey_prefix,
+            )
+            return
+
+        self._processing.add(pubkey_prefix)
+        try:
+            await self._dispatch(pubkey_prefix, text, user_name)
+        finally:
+            self._processing.discard(pubkey_prefix)
+
+    async def _dispatch(self, pubkey_prefix: str, text: str, user_name: str) -> None:
+        """Inner dispatch logic, called only when no concurrent handling is active."""
         command, arg = _parse_command(text)
 
         # ------------------------------------------------------------------
@@ -679,7 +759,7 @@ class BotHandler:
                 response = await self.story_engine.start_story(
                     pubkey_prefix, stored_name, genre=stored_genre
                 )
-                await self._send(pubkey_prefix, response)
+                await self._send_story(pubkey_prefix, response)
             else:
                 # Treat anything non-yes-ish (including no-ish or unknown) as a no.
                 log.info(
@@ -713,7 +793,7 @@ class BotHandler:
             await self._send(pubkey_prefix, HELP_TEXT)
             return
 
-        await self._send(pubkey_prefix, response)
+        await self._send_story(pubkey_prefix, response)
 
 
 # ---------------------------------------------------------------------------
