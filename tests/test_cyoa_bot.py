@@ -9,7 +9,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Helpers – import cyoa_bot without starting asyncio or requiring hardware
 # ---------------------------------------------------------------------------
@@ -151,7 +150,7 @@ class TestCommandSets:
         assert "help" in bot._HELP_CMDS
 
     def test_choices_are_digits_1_to_3(self, bot):
-        assert bot._CHOICES == {"1", "2", "3"}
+        assert {"1", "2", "3"} == bot._CHOICES
 
 
 # ---------------------------------------------------------------------------
@@ -201,9 +200,7 @@ class TestScanSerialCandidates:
 
     def test_includes_ttyacm_devices(self, bot):
         with patch("glob.glob") as mock_glob:
-            mock_glob.side_effect = lambda pattern: (
-                [] if "ttyUSB" in pattern else ["/dev/ttyACM0"]
-            )
+            mock_glob.side_effect = lambda pattern: [] if "ttyUSB" in pattern else ["/dev/ttyACM0"]
             result = bot.scan_serial_candidates()
         assert result == ["/dev/ttyACM0"]
 
@@ -224,9 +221,7 @@ class TestScanSerialCandidates:
     def test_result_is_sorted(self, bot):
         with patch("glob.glob") as mock_glob:
             mock_glob.side_effect = lambda pattern: (
-                ["/dev/ttyUSB2", "/dev/ttyUSB0", "/dev/ttyUSB1"]
-                if "ttyUSB" in pattern
-                else []
+                ["/dev/ttyUSB2", "/dev/ttyUSB0", "/dev/ttyUSB1"] if "ttyUSB" in pattern else []
             )
             result = bot.scan_serial_candidates()
         assert result == sorted(result)
@@ -273,9 +268,7 @@ class TestConnectionErrorHint:
         assert "/dev/ttyUSB1" in msg
 
     def test_alternate_port_hint_uses_port_flag(self, bot):
-        with patch.object(
-            bot, "scan_serial_candidates", return_value=["/dev/ttyACM0"]
-        ):
+        with patch.object(bot, "scan_serial_candidates", return_value=["/dev/ttyACM0"]):
             msg = bot._connection_error_hint("/dev/ttyUSB0", 115200)
         assert "--port" in msg
         assert "/dev/ttyACM0" in msg
@@ -407,9 +400,7 @@ class TestDrainInbox:
         import types as _types
         from unittest.mock import AsyncMock
 
-        mock = AsyncMock(
-            return_value={"messages": [{"pubkey_prefix": "bb22", "text": "help"}]}
-        )
+        mock = AsyncMock(return_value={"messages": [{"pubkey_prefix": "bb22", "text": "help"}]})
         commands = _types.SimpleNamespace(read_messages=mock)
         result = await bot._drain_inbox(commands)
         assert len(result) == 1
@@ -424,9 +415,7 @@ class TestDrainInbox:
         bad_mock = AsyncMock(side_effect=TypeError("wrong signature"))
         good_mock = AsyncMock(return_value=[{"pubkey_prefix": "cc33", "text": "1"}])
         # get_messages raises TypeError; read_messages works.
-        commands = _types.SimpleNamespace(
-            get_messages=bad_mock, read_messages=good_mock
-        )
+        commands = _types.SimpleNamespace(get_messages=bad_mock, read_messages=good_mock)
         result = await bot._drain_inbox(commands)
         assert len(result) == 1
         assert result[0]["pubkey_prefix"] == "cc33"
@@ -446,9 +435,7 @@ class TestDrainInbox:
 
         bad_mock = AsyncMock(side_effect=ValueError("oops"))
         good_mock = AsyncMock(return_value=[{"pubkey_prefix": "dd44", "text": "2"}])
-        commands = _types.SimpleNamespace(
-            get_messages=bad_mock, read_messages=good_mock
-        )
+        commands = _types.SimpleNamespace(get_messages=bad_mock, read_messages=good_mock)
         result = await bot._drain_inbox(commands)
         assert len(result) == 1
         assert result[0]["pubkey_prefix"] == "dd44"
@@ -460,7 +447,7 @@ class TestDrainInbox:
         from unittest.mock import AsyncMock
 
         always_fails = AsyncMock(side_effect=TypeError("nope"))
-        attrs = {name: always_fails for name in bot._DRAIN_CANDIDATES}
+        attrs = dict.fromkeys(bot._DRAIN_CANDIDATES, always_fails)
         commands = _types.SimpleNamespace(**attrs)
         result = await bot._drain_inbox(commands)
         assert result == []
@@ -601,8 +588,7 @@ class TestCheckEnv:
 
     def test_check_env_exits_zero_when_all_set(self, bot, capsys):
         """_check_env exits 0 when GROQ_API_KEY is set."""
-        with patch.object(bot, "GROQ_API_KEY", "fake_key_for_testing"):
-            with pytest.raises(SystemExit) as exc_info:
+        with patch.object(bot, "GROQ_API_KEY", "fake_key_for_testing"), pytest.raises(SystemExit) as exc_info:
                 bot._check_env()
         assert exc_info.value.code == 0
         out = capsys.readouterr().out
@@ -611,25 +597,23 @@ class TestCheckEnv:
 
     def test_check_env_exits_nonzero_when_key_missing(self, bot, capsys):
         """_check_env exits non-zero when GROQ_API_KEY is empty."""
-        with patch.object(bot, "GROQ_API_KEY", ""):
-            with pytest.raises(SystemExit) as exc_info:
-                bot._check_env()
+        with patch.object(bot, "GROQ_API_KEY", ""), pytest.raises(SystemExit) as exc_info:
+            bot._check_env()
         assert exc_info.value.code != 0
 
     def test_check_env_does_not_print_secret_value(self, bot, capsys):
         """_check_env must never print the actual API key value."""
         secret = "gsk_supersecret1234567890abcdef"
-        with patch.object(bot, "GROQ_API_KEY", secret):
-            with pytest.raises(SystemExit):
-                bot._check_env()
+        with patch.object(bot, "GROQ_API_KEY", secret), pytest.raises(SystemExit):
+            bot._check_env()
         out = capsys.readouterr().out
         assert secret not in out
 
     def test_check_env_shows_model_value(self, bot, capsys):
         """_check_env prints the current GROQ_MODEL value (not secret)."""
-        with patch.object(bot, "GROQ_API_KEY", "fake_key"):
-            with patch.object(bot, "GROQ_MODEL", "llama-3.1-8b-instant"):
-                with pytest.raises(SystemExit):
+        with patch.object(bot, "GROQ_API_KEY", "fake_key"), patch.object(
+            bot, "GROQ_MODEL", "llama-3.1-8b-instant"
+        ), pytest.raises(SystemExit):
                     bot._check_env()
         out = capsys.readouterr().out
         assert "llama-3.1-8b-instant" in out
@@ -690,7 +674,7 @@ def _make_handler(bot, confirm_timeout: float = 0.05):
     handler = bot.BotHandler(
         mc=mc,
         story_engine=story_engine,
-        max_chunk_size=1000,   # large enough to avoid chunking in tests
+        max_chunk_size=1000,  # large enough to avoid chunking in tests
         chunk_delay=0.0,
         confirm_timeout=confirm_timeout,
     )
@@ -730,7 +714,7 @@ class TestBotHandlerHelp:
 
     @pytest.mark.asyncio
     async def test_help_does_not_set_pending_state(self, bot):
-        handler, mc, _ = _make_handler(bot)
+        handler, _, _ = _make_handler(bot)
         await handler.handle("aa11", "help", "Alice")
         assert not handler.is_pending_confirm("aa11")
 
@@ -770,7 +754,7 @@ class TestBotHandlerStart:
 
     @pytest.mark.asyncio
     async def test_start_sets_pending_confirm(self, bot):
-        handler, mc, _ = _make_handler(bot)
+        handler, _, _ = _make_handler(bot)
         await handler.handle("bb22", "start", "Bob")
         assert handler.is_pending_confirm("bb22")
 
@@ -791,7 +775,7 @@ class TestBotHandlerStart:
     @pytest.mark.asyncio
     async def test_duplicate_start_cancels_previous_pending(self, bot):
         """A second start command replaces any existing pending confirmation."""
-        handler, mc, _ = _make_handler(bot)
+        handler, _, _ = _make_handler(bot)
         await handler.handle("bb22", "start", "Bob")
         first_task = handler._pending_confirm.get("bb22")
         await handler.handle("bb22", "start", "Bob")
@@ -826,7 +810,7 @@ class TestBotHandlerConfirmYes:
 
     @pytest.mark.asyncio
     async def test_yes_sends_story_text(self, bot):
-        handler, mc, story_engine = _make_handler(bot)
+        handler, mc, _ = _make_handler(bot)
         await handler.handle("cc33", "start", "Carol")
         mc.commands.send_msg.reset_mock()
         await handler.handle("cc33", "yes", "Carol")
@@ -834,14 +818,14 @@ class TestBotHandlerConfirmYes:
 
     @pytest.mark.asyncio
     async def test_yes_clears_pending_state(self, bot):
-        handler, mc, _ = _make_handler(bot)
+        handler, _, _ = _make_handler(bot)
         await handler.handle("cc33", "start", "Carol")
         await handler.handle("cc33", "yes", "Carol")
         assert not handler.is_pending_confirm("cc33")
 
     @pytest.mark.asyncio
     async def test_yes_case_insensitive(self, bot):
-        handler, mc, story_engine = _make_handler(bot)
+        handler, _, story_engine = _make_handler(bot)
         await handler.handle("cc33", "start", "Carol")
         await handler.handle("cc33", "YES", "Carol")
         story_engine.start_story.assert_called_once()
@@ -865,7 +849,7 @@ class TestBotHandlerConfirmNo:
 
     @pytest.mark.asyncio
     async def test_no_clears_pending_state(self, bot):
-        handler, mc, _ = _make_handler(bot)
+        handler, _, _ = _make_handler(bot)
         await handler.handle("dd44", "start", "Dave")
         await handler.handle("dd44", "no", "Dave")
         assert not handler.is_pending_confirm("dd44")
@@ -901,7 +885,7 @@ class TestBotHandlerTimeout:
 
     @pytest.mark.asyncio
     async def test_timeout_clears_pending_state(self, bot):
-        handler, mc, _ = _make_handler(bot, confirm_timeout=0.05)
+        handler, _, _ = _make_handler(bot, confirm_timeout=0.05)
         await handler.handle("ee55", "start", "Eve")
         await asyncio.sleep(0.2)
         assert not handler.is_pending_confirm("ee55")
@@ -927,13 +911,13 @@ class TestBotHandlerReset:
 
     @pytest.mark.asyncio
     async def test_restart_clears_session(self, bot):
-        handler, mc, story_engine = _make_handler(bot)
+        handler, _, story_engine = _make_handler(bot)
         await handler.handle("ff66", "restart", "Frank")
         story_engine.clear_session.assert_called_once_with("ff66")
 
     @pytest.mark.asyncio
     async def test_restart_triggers_onboarding(self, bot):
-        handler, mc, story_engine = _make_handler(bot)
+        handler, mc, _ = _make_handler(bot)
         await handler.handle("ff66", "restart", "Frank")
         texts = _sent_texts(mc)
         assert len(texts) == 3
@@ -943,19 +927,19 @@ class TestBotHandlerReset:
 
     @pytest.mark.asyncio
     async def test_restart_sets_pending_confirm(self, bot):
-        handler, mc, _ = _make_handler(bot)
+        handler, _, _ = _make_handler(bot)
         await handler.handle("ff66", "restart", "Frank")
         assert handler.is_pending_confirm("ff66")
 
     @pytest.mark.asyncio
     async def test_reset_clears_session(self, bot):
-        handler, mc, story_engine = _make_handler(bot)
+        handler, _, story_engine = _make_handler(bot)
         await handler.handle("ff66", "reset", "Frank")
         story_engine.clear_session.assert_called_once_with("ff66")
 
     @pytest.mark.asyncio
     async def test_reset_triggers_onboarding(self, bot):
-        handler, mc, story_engine = _make_handler(bot)
+        handler, mc, _ = _make_handler(bot)
         await handler.handle("ff66", "reset", "Frank")
         texts = _sent_texts(mc)
         assert len(texts) == 3
@@ -964,7 +948,7 @@ class TestBotHandlerReset:
     @pytest.mark.asyncio
     async def test_restart_cancels_existing_pending(self, bot):
         """restart during a pending confirmation cancels the old task."""
-        handler, mc, _ = _make_handler(bot)
+        handler, _, _ = _make_handler(bot)
         await handler.handle("ff66", "start", "Frank")
         old_task = handler._pending_confirm.get("ff66")
         await handler.handle("ff66", "restart", "Frank")
@@ -1095,7 +1079,7 @@ class TestBotHandlerGenres:
 
     @pytest.mark.asyncio
     async def test_genres_does_not_start_story(self, bot):
-        handler, mc, story_engine = _make_handler(bot)
+        handler, _, story_engine = _make_handler(bot)
         await handler.handle("aa11", "genres", "Alice")
         story_engine.start_story.assert_not_called()
 
@@ -1230,9 +1214,7 @@ class TestSplitStoryChoices:
         assert choices == "1. Go left\n2. Go right\n3. Wait"
 
     def test_splits_narrative_from_paren_choices(self, bot):
-        narrative, choices = bot._split_story_choices(
-            "A wolf growls.\n1) Run\n2) Fight\n3) Hide"
-        )
+        narrative, choices = bot._split_story_choices("A wolf growls.\n1) Run\n2) Fight\n3) Hide")
         assert narrative == "A wolf growls."
         assert choices == "1) Run\n2) Fight\n3) Hide"
 
@@ -1298,9 +1280,7 @@ class TestBotHandlerStoryChoicesSplit:
     @pytest.mark.asyncio
     async def test_yes_always_two_messages_when_choices_present(self, bot):
         handler, mc, story_engine = _make_handler(bot)
-        story_engine.start_story = AsyncMock(
-            return_value="Short.\n1. A\n2. B\n3. C"
-        )
+        story_engine.start_story = AsyncMock(return_value="Short.\n1. A\n2. B\n3. C")
         await handler.handle("hh88", "start", "Harriet")
         mc.commands.send_msg.reset_mock()
         await handler.handle("hh88", "yes", "Harriet")
@@ -1324,9 +1304,7 @@ class TestBotHandlerStoryChoicesSplit:
     async def test_non_story_response_single_message(self, bot):
         """A response without choices (e.g. cooldown gate) is a single message."""
         handler, mc, story_engine = _make_handler(bot)
-        story_engine.advance_story = AsyncMock(
-            return_value="The path is sealed. Return in 2h."
-        )
+        story_engine.advance_story = AsyncMock(return_value="The path is sealed. Return in 2h.")
         story_engine.has_session = MagicMock(return_value=True)
         await handler.handle("hh88", "1", "Harriet")
         texts = _sent_texts(mc)
@@ -1373,14 +1351,14 @@ class TestBotHandlerProcessingGuard:
     @pytest.mark.asyncio
     async def test_processing_slot_released_after_handle(self, bot):
         """After handle() completes the user's slot must be free."""
-        handler, mc, story_engine = _make_handler(bot)
+        handler, _, _ = _make_handler(bot)
         await handler.handle("ii99", "help", "Ivan")
         assert "ii99" not in handler._processing
 
     @pytest.mark.asyncio
     async def test_different_users_not_blocked(self, bot):
         """A held processing slot for one user must not block another user."""
-        handler, mc, story_engine = _make_handler(bot)
+        handler, _, story_engine = _make_handler(bot)
         story_engine.has_session = MagicMock(return_value=True)
 
         # User A is being processed.

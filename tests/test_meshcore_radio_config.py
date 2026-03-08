@@ -12,7 +12,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Helper: import the module with serial stubbed out so tests run without
 # pyserial being installed.
@@ -29,7 +28,7 @@ def _load_module():
     fake_serial.SerialException = OSError
     sys.modules.setdefault("serial", fake_serial)
 
-    import meshcore_radio_config as mrc  # noqa: PLC0415
+    import meshcore_radio_config as mrc
 
     return mrc
 
@@ -49,15 +48,15 @@ class TestValidateFrequency:
         assert reason == ""
 
     def test_lower_eu868_bound_is_valid(self):
-        ok, reason = mrc.validate_frequency(863.0)
+        ok, _ = mrc.validate_frequency(863.0)
         assert ok is True
 
     def test_upper_eu868_bound_is_valid(self):
-        ok, reason = mrc.validate_frequency(870.0)
+        ok, _ = mrc.validate_frequency(870.0)
         assert ok is True
 
     def test_midband_eu868_is_valid(self):
-        ok, reason = mrc.validate_frequency(868.1)
+        ok, _ = mrc.validate_frequency(868.1)
         assert ok is True
 
     def test_915_mhz_is_rejected(self):
@@ -70,24 +69,24 @@ class TestValidateFrequency:
         assert "UK" in reason or "EU" in reason
 
     def test_zero_is_rejected(self):
-        ok, reason = mrc.validate_frequency(0.0)
+        ok, _ = mrc.validate_frequency(0.0)
         assert ok is False
 
     def test_negative_is_rejected(self):
-        ok, reason = mrc.validate_frequency(-1.0)
+        ok, _ = mrc.validate_frequency(-1.0)
         assert ok is False
 
     def test_below_eu868_range_is_rejected(self):
-        ok, reason = mrc.validate_frequency(433.0)
+        ok, _ = mrc.validate_frequency(433.0)
         assert ok is False
 
     def test_above_eu868_range_but_below_900_is_rejected(self):
         # 871 MHz is just above the band but not yet 915-band.
-        ok, reason = mrc.validate_frequency(871.0)
+        ok, _ = mrc.validate_frequency(871.0)
         assert ok is False
 
     def test_900_mhz_boundary_is_rejected_as_915band(self):
-        ok, reason = mrc.validate_frequency(900.0)
+        ok, _ = mrc.validate_frequency(900.0)
         assert ok is False
 
 
@@ -163,7 +162,7 @@ class TestValidateLatitude:
         assert "90" in reason
 
     def test_below_minus_90_is_rejected(self):
-        ok, reason = mrc.validate_latitude(-91.0)
+        ok, _ = mrc.validate_latitude(-91.0)
         assert ok is False
 
 
@@ -195,7 +194,7 @@ class TestValidateLongitude:
         assert "180" in reason
 
     def test_below_minus_180_is_rejected(self):
-        ok, _ = mrc.validate_longitude(-181.0)
+        _, _ = mrc.validate_longitude(-181.0)
         assert _ is not None
 
 
@@ -236,9 +235,7 @@ class TestBuildCommands:
         assert cmds == ["set name MyNode"]
 
     def test_all_args(self):
-        cmds = mrc.build_commands(
-            freq_mhz=869.525, name="Node1", lat=53.8, lon=-1.5
-        )
+        cmds = mrc.build_commands(freq_mhz=869.525, name="Node1", lat=53.8, lon=-1.5)
         assert "set freq 869.525" in cmds
         assert "set name Node1" in cmds
         assert "set lat 53.8" in cmds
@@ -246,9 +243,7 @@ class TestBuildCommands:
         assert len(cmds) == 4
 
     def test_order_is_freq_name_lat_lon(self):
-        cmds = mrc.build_commands(
-            freq_mhz=869.525, name="Node1", lat=53.8, lon=-1.5
-        )
+        cmds = mrc.build_commands(freq_mhz=869.525, name="Node1", lat=53.8, lon=-1.5)
         assert cmds[0].startswith("set freq")
         assert cmds[1].startswith("set name")
         assert cmds[2].startswith("set lat")
@@ -300,9 +295,7 @@ class TestListSerialPorts:
     def test_returns_sorted_list(self):
         with patch("meshcore_radio_config._glob.glob") as mock_glob:
             mock_glob.side_effect = lambda pattern: (
-                ["/dev/ttyUSB1", "/dev/ttyUSB0"]
-                if "USB" in pattern
-                else ["/dev/ttyACM0"]
+                ["/dev/ttyUSB1", "/dev/ttyUSB0"] if "USB" in pattern else ["/dev/ttyACM0"]
             )
             ports = mrc.list_serial_ports()
         # Each pattern's results are sorted individually, then concatenated.
@@ -317,9 +310,7 @@ class TestListSerialPorts:
 
     def test_returns_only_usb_and_acm(self):
         with patch("meshcore_radio_config._glob.glob") as mock_glob:
-            mock_glob.side_effect = lambda p: (
-                ["/dev/ttyUSB0"] if "USB" in p else []
-            )
+            mock_glob.side_effect = lambda p: ["/dev/ttyUSB0"] if "USB" in p else []
             ports = mrc.list_serial_ports()
         assert ports == ["/dev/ttyUSB0"]
 
