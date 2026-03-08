@@ -28,7 +28,6 @@ from groq import AsyncGroq
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
- main
 # System prompt sent with every request.  It primes the model to produce
 # short, numbered-choice output that fits within LoRa packet constraints.
 _SYSTEM_PROMPT = (
@@ -122,6 +121,99 @@ def _format_reply(text: str) -> str:
         return f"{prefix}1. {c1}\n2. {c2}\n3. {c3}"
 
     return text
+
+
+# ---------------------------------------------------------------------------
+# Pacing constants
+# ---------------------------------------------------------------------------
+
+#: Doom score at which the story ends in a peril finale.
+DOOM_MAX: int = 20
+
+#: Number of scenes per chapter before a cliffhanger is triggered.
+SCENES_PER_CHAPTER: int = 4
+
+#: Seconds the user must wait between chapters (24 hours).
+CHAPTER_COOLDOWN: float = 86400.0
+
+#: Maximum number of chapters before a forced peril finale.
+MAX_CHAPTERS: int = 3
+
+# ---------------------------------------------------------------------------
+# Genre registry
+# ---------------------------------------------------------------------------
+
+#: Default genre used when ``start`` is issued without an argument.
+DEFAULT_GENRE: str = "wasteland"
+
+#: Mapping of genre ID → metadata dict with ``name`` and ``desc`` keys.
+GENRES: dict[str, dict[str, str]] = {
+    "wasteland": {
+        "name": "Post-Apocalyptic Wasteland",
+        "desc": "Survival in a radioactive wasteland after civilisation collapsed.",
+    },
+    "cozy": {
+        "name": "Cozy Village",
+        "desc": "Gentle adventures in a peaceful village full of quirky characters.",
+    },
+    "horror": {
+        "name": "Horror",
+        "desc": "A terrifying tale of dread, monsters, and the unknown.",
+    },
+    "mil": {
+        "name": "Military",
+        "desc": "High-stakes special-forces missions behind enemy lines.",
+    },
+    "comedy": {
+        "name": "Comedy",
+        "desc": "A hilariously chaotic adventure where nothing goes to plan.",
+    },
+}
+
+# ---------------------------------------------------------------------------
+# Choice risk classifier
+# ---------------------------------------------------------------------------
+
+# Keywords that indicate a high-risk choice (worth 2 doom points).
+_HIGH_RISK_KEYWORDS: frozenset[str] = frozenset({
+    "attack", "fight", "charge", "confront", "challenge", "assault",
+    "rush", "ambush", "storm", "battle", "shoot", "stab", "kill",
+    "steal", "grab", "snatch", "gamble", "risk", "dare", "reckless",
+    "sacrifice", "detonate", "explode", "dive", "leap", "jump",
+})
+
+# Keywords that indicate a low-risk (safe) choice (worth 0 doom points).
+_LOW_RISK_KEYWORDS: frozenset[str] = frozenset({
+    "hide", "sneak", "run", "flee", "retreat", "avoid", "evade",
+    "wait", "watch", "observe", "listen", "rest", "sleep", "heal",
+    "tend", "help", "assist", "negotiate", "talk", "ask", "plead",
+    "beg", "surrender", "calm", "soothe", "careful", "cautious",
+})
+
+
+def classify_choice(choice_text: str) -> int:
+    """Return a doom-risk score for *choice_text*.
+
+    Scans the choice text for keywords that indicate high-risk or low-risk
+    actions and returns an integer doom increment:
+
+    * ``2`` – high-risk / aggressive action detected.
+    * ``0`` – low-risk / cautious action detected.
+    * ``1`` – neutral / no recognisable keywords.
+
+    Args:
+        choice_text: The raw choice string entered by the user.
+
+    Returns:
+        An integer in ``{0, 1, 2}``.
+    """
+    words = re.findall(r"[a-z]+", choice_text.lower())
+    word_set = frozenset(words)
+    if word_set & _HIGH_RISK_KEYWORDS:
+        return 2
+    if word_set & _LOW_RISK_KEYWORDS:
+        return 0
+    return 1
 
 
 class Session:
