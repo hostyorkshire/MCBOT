@@ -757,10 +757,10 @@ class TestBotHandlerStart:
         assert _sent_texts(mc)[0] == bot.ONBOARD_MSG_1
 
     @pytest.mark.asyncio
-    async def test_start_second_message_is_help_text(self, bot):
+    async def test_start_second_message_is_commands_url(self, bot):
         handler, mc, _ = _make_handler(bot)
         await handler.handle("bb22", "start", "Bob")
-        assert _sent_texts(mc)[1] == EXPECTED_HELP_TEXT
+        assert _sent_texts(mc)[1] == bot.ONBOARD_MSG_2
 
     @pytest.mark.asyncio
     async def test_start_third_message(self, bot):
@@ -938,7 +938,7 @@ class TestBotHandlerReset:
         texts = _sent_texts(mc)
         assert len(texts) == 3
         assert texts[0] == bot.ONBOARD_MSG_1
-        assert texts[1] == EXPECTED_HELP_TEXT
+        assert texts[1] == bot.ONBOARD_MSG_2
         assert texts[2] == bot.ONBOARD_MSG_3
 
     @pytest.mark.asyncio
