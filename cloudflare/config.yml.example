@@ -1,0 +1,47 @@
+# Cloudflare Tunnel configuration template for the MCBOT website
+#
+# USAGE
+# -----
+# 1. Install cloudflared on the Raspberry Pi:
+#      curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm \
+#           -o /tmp/cloudflared
+#      sudo install -m 755 /tmp/cloudflared /usr/local/bin/cloudflared
+#    (Use the "arm64" build for Pi 4 / Pi 5.)
+#
+# 2. Authenticate cloudflared with your Cloudflare account:
+#      cloudflared tunnel login
+#    This opens a browser and writes credentials to ~/.cloudflared/cert.pem
+#
+# 3. Create a named tunnel:
+#      cloudflared tunnel create mcbot-website
+#    Note the tunnel UUID that is printed – paste it below as TUNNEL_ID.
+#
+# 4. Copy this file to the cloudflared config directory:
+#      sudo cp cloudflare/config.yml /etc/cloudflared/config.yml
+#    Then edit /etc/cloudflared/config.yml and replace the placeholder values.
+#
+# 5. Add a DNS record that routes your domain/subdomain to the tunnel:
+#      cloudflared tunnel route dns mcbot-website <YOUR_DOMAIN>
+#    e.g.  cloudflared tunnel route dns mcbot-website mcbot.example.com
+#
+# 6. Install cloudflared as a system service and start it:
+#      sudo cloudflared service install
+#      sudo systemctl start cloudflared
+#      sudo systemctl enable cloudflared
+#
+# After these steps the static website will be accessible at
+# https://<YOUR_DOMAIN>/ from anywhere on the internet – no static IP needed.
+
+# ── Replace these values ────────────────────────────────────────────────────
+tunnel: <TUNNEL_ID>          # UUID printed by: cloudflared tunnel create mcbot-website
+credentials-file: /home/pi/.cloudflared/<TUNNEL_ID>.json
+
+# ── Ingress rules ───────────────────────────────────────────────────────────
+ingress:
+  # Route all traffic for your domain to the local website server.
+  # The website_server.py / website.service binds on port 8080 by default.
+  - hostname: <YOUR_DOMAIN>   # e.g. mcbot.example.com
+    service: http://127.0.0.1:8080
+
+  # Catch-all rule (required by cloudflared – must be last).
+  - service: http_status:404

@@ -1,0 +1,31 @@
+# website.service – systemd unit file template for the MCBOT static website server
+#
+# This file is a template; run ./setup.sh (as root/sudo) to have it
+# installed automatically with the correct paths and user filled in.
+#
+# To install manually, substitute the placeholder values and copy to
+# /etc/systemd/system/website.service, then run:
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now website.service
+
+[Unit]
+Description=MCBOT Static Website Server
+After=network.target
+
+[Service]
+Type=simple
+# Replace with the OS user that owns the repository (e.g. pi)
+User=pi
+# Replace with the absolute path to the cloned repository
+WorkingDirectory=/home/pi/MCBOT
+# Bind to localhost only – cloudflared forwards public traffic here
+Environment=WEBSITE_HOST=127.0.0.1
+Environment=WEBSITE_PORT=8080
+ExecStart=/home/pi/MCBOT/.venv/bin/python /home/pi/MCBOT/website_server.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

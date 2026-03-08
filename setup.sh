@@ -203,6 +203,71 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Website server service installation (optional)
+# ---------------------------------------------------------------------------
+
+printf "\n"
+read -rp "Would you like to install and enable the website server systemd service? (y/N): " install_website
+if [ "$install_website" = "y" ] || [ "$install_website" = "Y" ]; then
+
+    # Require root/sudo for systemd installation
+    if [ "$EUID" -ne 0 ]; then
+        echo ""
+        echo "ERROR: Systemd service installation requires root privileges."
+        echo "Re-run the script with sudo: sudo bash \"${SCRIPT_ABS}\""
+        exit 1
+    fi
+
+    WORKDIR="$(cd "$(dirname "$0")" && pwd)"
+    BOT_USER="${SUDO_USER:-$(whoami)}"
+    PYTHON_BIN="${WORKDIR}/.venv/bin/python"
+    WEBSITE_SERVICE_DEST="/etc/systemd/system/website.service"
+
+    echo "Installing website systemd unit to ${WEBSITE_SERVICE_DEST} ..."
+
+    systemctl stop website.service 2>/dev/null || true
+
+    cat > "${WEBSITE_SERVICE_DEST}" << UNIT
+[Unit]
+Description=MCBOT Static Website Server
+After=network.target
+
+[Service]
+Type=simple
+User=${BOT_USER}
+WorkingDirectory=${WORKDIR}
+Environment=WEBSITE_HOST=127.0.0.1
+Environment=WEBSITE_PORT=8080
+ExecStart=${PYTHON_BIN} ${WORKDIR}/website_server.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+    chmod 644 "${WEBSITE_SERVICE_DEST}"
+    systemctl daemon-reload
+    systemctl enable --now website.service
+
+    echo ""
+    echo "website.service installed and enabled successfully!"
+    echo "  Status:   sudo systemctl status website"
+    echo "  Logs:     sudo journalctl -u website -f"
+    echo "  Stop:     sudo systemctl stop website"
+    echo "  Disable:  sudo systemctl disable website"
+    echo ""
+    echo "The site is now served at http://127.0.0.1:8080/ on this machine."
+    echo ""
+    echo "To make it publicly accessible without a static IP, set up a"
+    echo "Cloudflare Tunnel by following the instructions in website/README.md"
+    echo "and using the template at cloudflare/config.yml.example."
+    printf "\nThe website server will start automatically on every reboot.\n"
+fi
+
+# ---------------------------------------------------------------------------
 # Create dashboard.sh helper (idempotent)
 # ---------------------------------------------------------------------------
 
@@ -252,5 +317,11 @@ echo "  Start the web dashboard:"
 echo "    ./dashboard.sh"
 echo ""
 echo "  Then open your browser at:  http://localhost:5000"
+echo ""
+echo "  Start the website server (static site on port 8080):"
+echo "    python website_server.py"
+echo ""
+echo "  To serve the website publicly from the Pi via Cloudflare Tunnel,"
+echo "  see website/README.md and cloudflare/config.yml.example."
 echo ""
 echo "======================================================================="
