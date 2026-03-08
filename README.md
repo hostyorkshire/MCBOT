@@ -682,9 +682,53 @@ cyoa_bot.py  (asyncio event loop)
 
 story_engine.py  (StoryEngine)
   ├── one Session object per user (keyed by pubkey_prefix)
-  ├── each Session holds bounded conversation history
+  ├── each Session holds bounded conversation history + invisible pacing state
   └── calls Groq AsyncGroq client for story generation
 
 utils.py
   └── chunk_message() – word-aware text splitter
 ```
+
+---
+
+## Story Pacing / Doom System
+
+Stories are guaranteed to end in peril.  All pacing is **invisible to the
+user** — no counters or labels are shown.
+
+### How it works
+
+Each call to `advance_story` increments a per-session *doom* counter:
+
+```
+doom += chapter_number + risk_gain
+```
+
+`risk_gain` is 0 (safe choice), 1 (neutral), or 2 (risky), determined
+automatically from keywords in the player's message.
+
+When doom reaches `DOOM_MAX` the LLM is instructed to write a dramatic
+peril finale.
+
+Every `SCENES_PER_CHAPTER` scenes (without doom triggering) the chapter ends
+with an in-world cliffhanger.  The player must wait **24 hours** before
+continuing.  If the story reaches `MAX_CHAPTERS` the engine forces a peril
+finale instead of another cliffhanger.
+
+### Configurable knobs (in `story_engine.py`)
+
+| Constant | Default | Purpose |
+|---|---|---|
+| `DOOM_MAX` | `36` | Doom threshold that triggers a peril finale |
+| `SCENES_PER_CHAPTER` | `30` | Scenes before a chapter cliffhanger |
+| `MAX_CHAPTERS` | `30` | Hard cap on chapters before forced finale |
+| `CHAPTER_COOLDOWN` | `86400` | Seconds between chapters (24 h) |
+
+### Risk-gain keyword heuristic
+
+High-risk actions (`attack`, `fight`, `run`, `jump`, `steal`, `open`, …)
+add **+2** doom on top of the baseline.  Low-risk actions (`wait`, `hide`,
+`retreat`, `listen`, `observe`, …) add **+0**.  Everything else adds **+1**.
+
+The keyword sets (`_HIGH_RISK_KEYWORDS`, `_LOW_RISK_KEYWORDS`) are defined
+at the top of `story_engine.py` and are easy to extend.
