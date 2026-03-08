@@ -10,7 +10,7 @@ visitors add the MCBOT node to their MeshCore contacts by scanning a QR code.
 | File | Purpose |
 |---|---|
 | `index.html` | The styled landing page (sticker-blob / 70s lava-lamp theme) |
-| `qr.png` | *(you supply this)* The QR code image for your MeshCore node |
+| `qr.png` | QR code image linking to `http://meshtastic.local/#/connect?add=true` (now included by default) |
 | `README.md` | This file |
 
 ---
@@ -37,8 +37,12 @@ visitors add the MCBOT node to their MeshCore contacts by scanning a QR code.
 
 ## Adding the QR Code
 
-The page will load automatically and show a styled placeholder if `qr.png` is not
-present yet.  To display the real QR code:
+A `qr.png` is now included in this folder by default. It encodes the URL
+`http://meshtastic.local/#/connect?add=true` so mobile users can also tap a
+link directly when they cannot scan the QR code.
+
+The page will show a styled placeholder if `qr.png` is not present.
+To replace it with your own QR code:
 
 1. **Generate your QR code** from the MeshCore app or companion firmware:
    - In the MeshCore app go to your node's profile and choose **Share / Export QR**.
@@ -49,8 +53,8 @@ present yet.  To display the real QR code:
 4. Refresh the page – the real QR code will appear in place of the placeholder.
 
 > The QR code should be scanned with the **MeshCore mobile app**
-> (`Contacts → Add Contact → Scan QR`).  No camera permission is requested by
-> the website itself; scanning happens entirely inside the MeshCore app.
+> (`Contacts → Add Contact → Scan QR`).  Mobile users who cannot scan the
+> screen can tap the **"Tap to add this contact"** link shown below the QR image.
 
 ---
 
