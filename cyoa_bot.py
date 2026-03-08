@@ -46,6 +46,7 @@ except ImportError:  # pragma: no cover – optional dependency
     def _write_dashboard_state(_data: dict) -> None:  # type: ignore[misc]
         """No-op fallback when the dashboard package is unavailable."""
 
+
 # ---------------------------------------------------------------------------
 # Bootstrap
 # ---------------------------------------------------------------------------
