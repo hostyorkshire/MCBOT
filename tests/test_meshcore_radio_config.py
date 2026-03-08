@@ -194,8 +194,8 @@ class TestValidateLongitude:
         assert "180" in reason
 
     def test_below_minus_180_is_rejected(self):
-        _, _ = mrc.validate_longitude(-181.0)
-        assert _ is not None
+        _, reason = mrc.validate_longitude(-181.0)
+        assert reason is not None
 
 
 # ===========================================================================

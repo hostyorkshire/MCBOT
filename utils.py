@@ -26,8 +26,8 @@ def chunk_message(text: str, size: int = 200) -> list[str]:
 
     lines = text.split("\n")
     chunks: list[str] = []
-    pending: list[str] = []   # lines accumulated into the current chunk
-    pending_len = 0            # char length of "\n".join(pending)
+    pending: list[str] = []  # lines accumulated into the current chunk
+    pending_len = 0  # char length of "\n".join(pending)
 
     for line in lines:
         # If a single line exceeds *size*, word-wrap it.
