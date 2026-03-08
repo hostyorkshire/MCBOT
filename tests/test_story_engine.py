@@ -12,6 +12,7 @@ from story_engine import (
     SCENES_PER_CHAPTER,
     Session,
     StoryEngine,
+    _CHAPTER_CHOICE_SUFFIX,
     _format_reply,
     classify_choice,
 )
@@ -89,6 +90,10 @@ class TestSession:
         msgs = s.get_messages()
         msgs.append({"role": "user", "content": "extra"})
         assert len(s.history) == 1  # original unchanged
+
+    def test_awaiting_chapter_choice_defaults_false(self):
+        s = Session("u1", "Alice", max_history=5)
+        assert s.awaiting_chapter_choice is False
 
 
 # ---------------------------------------------------------------------------
@@ -231,6 +236,9 @@ class TestPacingConstants:
     def test_scenes_per_chapter_is_positive(self):
         assert SCENES_PER_CHAPTER > 0
 
+    def test_scenes_per_chapter_at_least_150(self):
+        assert SCENES_PER_CHAPTER >= 150
+
     def test_max_chapters_is_positive(self):
         assert MAX_CHAPTERS > 0
 
@@ -263,3 +271,107 @@ class TestClassifyChoice:
 
     def test_empty_string_returns_one(self):
         assert classify_choice("") == 1
+
+
+# ---------------------------------------------------------------------------
+# Chapter-boundary behaviour tests
+# ---------------------------------------------------------------------------
+
+
+def _engine_at_chapter_boundary(cliffhanger_reply: str = "Darkness falls\u2026") -> StoryEngine:
+    """Return an engine whose session is one scene away from a chapter boundary."""
+    with patch("story_engine.AsyncGroq") as mock_cls:
+        mock_cls.return_value = _make_mock_groq()
+        eng = StoryEngine(api_key="fake-key")
+
+    session = Session("u1", "Hero", max_history=10)
+    # Preload the session at the last scene of the first chapter.
+    session.chapter = 1
+    session.scene_in_chapter = SCENES_PER_CHAPTER - 1
+    eng._sessions["u1"] = session
+    # Point the mock client at the cliffhanger reply.
+    eng._client = _make_mock_groq(cliffhanger_reply)
+    return eng
+
+
+class TestChapterBoundary:
+    @pytest.mark.asyncio
+    async def test_chapter_end_sets_awaiting_chapter_choice(self):
+        """Reaching SCENES_PER_CHAPTER triggers awaiting_chapter_choice, not a cooldown."""
+        eng = _engine_at_chapter_boundary()
+        await eng.advance_story("u1", "1")
+        session = eng._sessions["u1"]
+        assert session.awaiting_chapter_choice is True
+        assert session.continue_after_ts is None
+
+    @pytest.mark.asyncio
+    async def test_chapter_end_reply_contains_continue_pause_end(self):
+        """The chapter-boundary reply includes the three fixed choices."""
+        eng = _engine_at_chapter_boundary("Shadows close in.")
+        reply = await eng.advance_story("u1", "1")
+        assert "1." in reply
+        assert "2." in reply
+        assert "3." in reply
+        assert _CHAPTER_CHOICE_SUFFIX in reply
+
+    @pytest.mark.asyncio
+    async def test_chapter_end_advances_chapter_counter(self):
+        """Chapter number increments and scene_in_chapter resets when boundary is hit."""
+        eng = _engine_at_chapter_boundary()
+        await eng.advance_story("u1", "1")
+        session = eng._sessions["u1"]
+        assert session.chapter == 2
+        assert session.scene_in_chapter == 0
+
+    @pytest.mark.asyncio
+    async def test_choice_1_continues_story(self):
+        """Selecting 1 (Continue) clears the flag and returns the next scene."""
+        next_scene = "You press on.\n1. Climb\n2. Swim\n3. Wait"
+        eng = _engine_at_chapter_boundary()
+        await eng.advance_story("u1", "1")  # trigger boundary
+        eng._client = _make_mock_groq(next_scene)
+        reply = await eng.advance_story("u1", "1")  # Continue
+        session = eng._sessions["u1"]
+        assert session.awaiting_chapter_choice is False
+        assert session.finished is False
+        assert reply == next_scene
+
+    @pytest.mark.asyncio
+    async def test_choice_2_pauses_without_cooldown(self):
+        """Selecting 2 (Pause) clears the flag and does not set a cooldown gate."""
+        eng = _engine_at_chapter_boundary()
+        await eng.advance_story("u1", "1")  # trigger boundary
+        reply = await eng.advance_story("u1", "2")  # Pause
+        session = eng._sessions["u1"]
+        assert session.awaiting_chapter_choice is False
+        assert session.continue_after_ts is None
+        assert session.finished is False
+        assert "continue" in reply.lower()
+
+    @pytest.mark.asyncio
+    async def test_choice_3_ends_story(self):
+        """Selecting 3 (End) marks the story finished and returns an end screen."""
+        eng = _engine_at_chapter_boundary()
+        await eng.advance_story("u1", "1")  # trigger boundary
+        reply = await eng.advance_story("u1", "3")  # End
+        session = eng._sessions["u1"]
+        assert session.awaiting_chapter_choice is False
+        assert session.finished is True
+        assert "[END]" in reply
+
+    @pytest.mark.asyncio
+    async def test_unknown_input_at_chapter_boundary_reshows_prompt(self):
+        """Any input that is not 1/2/3 while awaiting_chapter_choice re-shows the prompt."""
+        eng = _engine_at_chapter_boundary()
+        await eng.advance_story("u1", "1")  # trigger boundary
+        reply = await eng.advance_story("u1", "maybe later")
+        assert eng._sessions["u1"].awaiting_chapter_choice is True
+        assert "1." in reply or "Continue" in reply
+
+    @pytest.mark.asyncio
+    async def test_no_24h_cooldown_after_chapter_end(self):
+        """The 24-hour cooldown gate must never be set at a chapter boundary."""
+        eng = _engine_at_chapter_boundary()
+        await eng.advance_story("u1", "1")  # trigger boundary
+        session = eng._sessions["u1"]
+        assert session.continue_after_ts is None

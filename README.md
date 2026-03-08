@@ -715,18 +715,29 @@ When doom reaches `DOOM_MAX` the LLM is instructed to write a dramatic
 peril finale.
 
 Every `SCENES_PER_CHAPTER` scenes (without doom triggering) the chapter ends
-with an in-world cliffhanger.  The player must wait **24 hours** before
-continuing.  If the story reaches `MAX_CHAPTERS` the engine forces a peril
-finale instead of another cliffhanger.
+with an in-world cliffhanger followed by an explicit prompt:
+
+```
+1. Continue
+2. Pause
+3. End
+```
+
+* **Continue (1)** – the story resumes immediately with no cooldown.
+* **Pause (2)** – the session stays open; the player can send any choice at
+  any time to continue.
+* **End (3)** – the story is closed and an end screen is shown.
+
+If the story reaches `MAX_CHAPTERS` without doom triggering, the engine
+forces a peril finale instead of another cliffhanger.
 
 ### Configurable knobs (in `story_engine.py`)
 
 | Constant | Default | Purpose |
 |---|---|---|
-| `DOOM_MAX` | `36` | Doom threshold that triggers a peril finale |
-| `SCENES_PER_CHAPTER` | `30` | Scenes before a chapter cliffhanger |
-| `MAX_CHAPTERS` | `30` | Hard cap on chapters before forced finale |
-| `CHAPTER_COOLDOWN` | `86400` | Seconds between chapters (24 h) |
+| `DOOM_MAX` | `500` | Doom threshold that triggers a peril finale |
+| `SCENES_PER_CHAPTER` | `150` | Scenes before a chapter cliffhanger + choice prompt |
+| `MAX_CHAPTERS` | `10` | Hard cap on chapters before forced finale |
 
 ### Risk-gain keyword heuristic
 
