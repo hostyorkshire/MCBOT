@@ -27,7 +27,7 @@ import types
 from dotenv import load_dotenv
 from meshcore import EventType, MeshCore
 
-from story_engine import StoryEngine
+from story_engine import DEFAULT_GENRE, GENRES, StoryEngine
 from utils import chunk_message
 
 # ---------------------------------------------------------------------------
@@ -53,8 +53,15 @@ CHUNK_DELAY: float = float(os.getenv("CHUNK_DELAY", "2.0"))
 MAX_HISTORY: int = int(os.getenv("MAX_HISTORY", "10"))
 
 HELP_TEXT: str = (
-    "help/?=this. start/new/begin=prompt to begin. restart/reset=reset+start over. "
-    "In story: reply 1/2/3 or send text. After start, answer yes/no in 60s."
+    "help/?=this. genres=list genres. start/new/begin [genre|#]=begin story. "
+    "restart/reset=reset. In story: 1/2/3 or text. 60s to confirm."
+)
+
+# Compact genre list sent in response to the ``genres`` command.
+GENRES_TEXT: str = (
+    "Genres: "
+    + " ".join(f"{i + 1}.{gid}" for i, gid in enumerate(GENRES))
+    + " | start <name|#>"
 )
 
 # Onboarding / confirmation messages
@@ -77,6 +84,8 @@ _START_CMDS = {"start", "new", "begin"}
 _RESET_CMDS = {"restart", "reset"}
 # Commands that show help
 _HELP_CMDS = {"help", "?"}
+# Commands that list available genres
+_GENRES_CMDS = {"genres"}
 # Affirmative replies that confirm a start prompt
 _YES_CMDS = {"yes", "y", "ok", "okay", "sure", "yeah", "yep", "please", "go", "start"}
 # Negative replies that decline a start prompt
@@ -227,6 +236,61 @@ def _normalize_command(text: str) -> str:
     if cmd and cmd[0] in _CMD_PREFIXES:
         cmd = cmd[1:]
     return cmd
+
+
+def _parse_command(text: str) -> tuple[str, str]:
+    """Parse *text* into a ``(command, argument)`` tuple.
+
+    Like :func:`_normalize_command` but also extracts an optional argument
+    following the command token.  Both the command and the argument are
+    lower-cased.  For example ``"/start Horror"`` → ``("start", "horror")``.
+
+    Args:
+        text: Raw message text received from a MeshCore client.
+
+    Returns:
+        ``(command, arg)`` where *arg* is the lower-cased, stripped remainder
+        after the command token, or an empty string when absent.
+    """
+    normalized = text.strip().lower()
+    if normalized and normalized[0] in _CMD_PREFIXES:
+        normalized = normalized[1:]
+    parts = normalized.split(None, 1)
+    if not parts:
+        return "", ""
+    return parts[0], parts[1].strip() if len(parts) > 1 else ""
+
+
+# Ordered list of genre IDs matching insertion order of the GENRES dict.
+# GENRES is treated as immutable after module load; this list is therefore stable.
+_GENRE_IDS: list[str] = list(GENRES.keys())
+
+
+def _resolve_genre(arg: str) -> str | None:
+    """Resolve *arg* to a genre ID.
+
+    Accepts a genre ID (e.g. ``"horror"``) or a 1-based integer that
+    refers to the numbered list shown by the ``genres`` command.
+
+    Args:
+        arg: Raw argument string extracted from the user's message.
+
+    Returns:
+        A genre ID from :data:`~story_engine.GENRES`, or ``None`` if
+        *arg* is unrecognised.
+    """
+    arg = arg.strip().lower()
+    if not arg:
+        return None
+    if arg in GENRES:
+        return arg
+    try:
+        n = int(arg)
+        if 1 <= n <= len(_GENRE_IDS):
+            return _GENRE_IDS[n - 1]
+    except ValueError:
+        pass
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -480,6 +544,8 @@ class BotHandler:
         self._pending_confirm: dict[str, asyncio.Task] = {}  # type: ignore[type-arg]
         # pubkey_prefix → user_name stored at confirmation start
         self._pending_user_names: dict[str, str] = {}
+        # pubkey_prefix → genre ID stored at confirmation start
+        self._pending_genres: dict[str, str] = {}
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -495,6 +561,7 @@ class BotHandler:
         if task and not task.done():
             task.cancel()
         self._pending_user_names.pop(pubkey_prefix, None)
+        self._pending_genres.pop(pubkey_prefix, None)
 
     async def _timeout_task(self, pubkey_prefix: str) -> None:
         """Sleep for :attr:`confirm_timeout` seconds, then send the timeout message."""
@@ -502,21 +569,29 @@ class BotHandler:
         # Remove self from pending state before sending so the slot is free.
         self._pending_confirm.pop(pubkey_prefix, None)
         self._pending_user_names.pop(pubkey_prefix, None)
+        self._pending_genres.pop(pubkey_prefix, None)
         log.info("Confirmation timeout for %s – sending timeout message", pubkey_prefix)
         await self._send(pubkey_prefix, TIMEOUT_MSG)
 
-    async def _start_onboarding(self, pubkey_prefix: str, user_name: str) -> None:
+    async def _start_onboarding(
+        self,
+        pubkey_prefix: str,
+        user_name: str,
+        genre: str = DEFAULT_GENRE,
+    ) -> None:
         """Cancel any existing confirmation and begin the 3-message onboarding."""
         self._cancel_pending(pubkey_prefix)
         log.info(
-            "Starting onboarding for %s (%s) – sending 3 messages",
+            "Starting onboarding for %s (%s) genre=%s – sending 3 messages",
             user_name,
             pubkey_prefix,
+            genre,
         )
         await self._send(pubkey_prefix, ONBOARD_MSG_1)
         await self._send(pubkey_prefix, HELP_TEXT)
         await self._send(pubkey_prefix, ONBOARD_MSG_3)
         self._pending_user_names[pubkey_prefix] = user_name
+        self._pending_genres[pubkey_prefix] = genre
         task = asyncio.create_task(self._timeout_task(pubkey_prefix))
         self._pending_confirm[pubkey_prefix] = task
 
@@ -536,7 +611,7 @@ class BotHandler:
             text: Raw message text exactly as received.
             user_name: Friendly display name for the sender.
         """
-        command = _normalize_command(text)
+        command, arg = _parse_command(text)
 
         # ------------------------------------------------------------------
         # Reset and start commands always take priority, even while awaiting
@@ -550,6 +625,12 @@ class BotHandler:
             log.info("Sent help text to %s (%s)", user_name, pubkey_prefix)
             return
 
+        # --- genres list ---
+        if command in _GENRES_CMDS:
+            log.info("Genres command from %s (%s)", user_name, pubkey_prefix)
+            await self._send(pubkey_prefix, GENRES_TEXT)
+            return
+
         # --- reset then start ---
         if command in _RESET_CMDS:
             log.info("Reset command from %s (%s)", user_name, pubkey_prefix)
@@ -558,22 +639,41 @@ class BotHandler:
 
         # --- start onboarding (also reached after reset) ---
         if command in _START_CMDS:
-            await self._start_onboarding(pubkey_prefix, user_name)
+            genre = DEFAULT_GENRE
+            if arg:
+                resolved = _resolve_genre(arg)
+                if resolved is None:
+                    log.info(
+                        "Unknown genre %r from %s (%s)",
+                        arg,
+                        user_name,
+                        pubkey_prefix,
+                    )
+                    await self._send(
+                        pubkey_prefix,
+                        f"Unknown genre '{arg}'. Type 'genres' for list.",
+                    )
+                    return
+                genre = resolved
+            await self._start_onboarding(pubkey_prefix, user_name, genre)
             return
 
         # ------------------------------------------------------------------
         # If we're waiting for a yes/no confirmation, handle it now.
         # ------------------------------------------------------------------
         if self.is_pending_confirm(pubkey_prefix):
+            stored_name = self._pending_user_names.get(pubkey_prefix, user_name)
+            stored_genre = self._pending_genres.get(pubkey_prefix, DEFAULT_GENRE)
             self._cancel_pending(pubkey_prefix)
-            stored_name = self._pending_user_names.pop(pubkey_prefix, user_name)
             if command in _YES_CMDS:
                 log.info(
                     "Yes-ish confirmation from %s (%s) – starting story",
                     stored_name,
                     pubkey_prefix,
                 )
-                response = await self.story_engine.start_story(pubkey_prefix, stored_name)
+                response = await self.story_engine.start_story(
+                    pubkey_prefix, stored_name, genre=stored_genre
+                )
                 await self._send(pubkey_prefix, response)
             else:
                 # Treat anything non-yes-ish (including no-ish or unknown) as a no.

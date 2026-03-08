@@ -179,13 +179,17 @@ Send a direct message to the bot node from any MeshCore client:
 
 | Message | Action |
 |---|---|
-| `start` / `new` / `begin` | Start a new adventure |
+| `start` / `new` / `begin` | Start a new adventure (defaults to post‑apoc sci‑fi survival) |
+| `start <genre\|#>` | Start with a specific genre (e.g. `start horror` or `start 3`) |
+| `genres` | List available genres with their numbers |
 | `1`, `2`, or `3` | Choose the numbered story option |
 | `restart` / `reset` | Reset your current story and start fresh |
 | `help` / `?` | Show command reference |
 
-Commands are also accepted with a leading `/` or `!` prefix (e.g. `/start`,
-`!help`). Any other text while a story is active is treated as free-text input
+**Available genres:** `wasteland` (default) · `cozy` · `horror` · `mil` · `comedy`
+
+Commands are also accepted with a leading `/`, `!`, or `\` prefix (e.g. `/start horror`,
+`!genres`). Any other text while a story is active is treated as free-text input
 to the story engine.
 
 ---

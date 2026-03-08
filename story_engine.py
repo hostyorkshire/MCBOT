@@ -28,106 +28,7 @@ from groq import AsyncGroq
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Pacing constants
-# ---------------------------------------------------------------------------
-
-#: Scenes per chapter before a cliffhanger is generated.
-SCENES_PER_CHAPTER: int = 30
-
-#: Accumulated doom threshold that triggers an immediate peril finale.
-DOOM_MAX: int = 36
-
-#: Maximum chapters allowed before a forced peril finale.
-MAX_CHAPTERS: int = 30
-
-#: Seconds between chapters (24 h continuation gate).
-CHAPTER_COOLDOWN: int = 86_400
-
-# ---------------------------------------------------------------------------
-# Risk-classification keyword sets (used by classify_choice)
-# ---------------------------------------------------------------------------
-
-#: Actions that carry high risk → risk_gain = 2.
-_HIGH_RISK_KEYWORDS: frozenset[str] = frozenset(
-    {
-        "attack",
-        "fight",
-        "run",
-        "jump",
-        "steal",
-        "grab",
-        "charge",
-        "rush",
-        "confront",
-        "shoot",
-        "stab",
-        "slash",
-        "kick",
-        "punch",
-        "smash",
-        "break",
-        "destroy",
-        "challenge",
-        "lunge",
-        "leap",
-        "sprint",
-        "open the door",
-        "pry open",
-        "force open",
-    }
-)
-
-#: Actions that carry low risk → risk_gain = 0.
-_LOW_RISK_KEYWORDS: frozenset[str] = frozenset(
-    {
-        "wait",
-        "hide",
-        "retreat",
-        "listen",
-        "sneak",
-        "observe",
-        "watch",
-        "rest",
-        "stay",
-        "back",
-        "look",
-        "examine",
-        "think",
-        "pause",
-        "crouch",
-        "whisper",
-        "crawl",
-    }
-)
-
-
-def classify_choice(text: str) -> int:
-    """Return a risk-gain value (0 = safe, 1 = medium, 2 = risky) for *text*.
-
-    The classification is rule-based: it scans for keywords in
-    :data:`_HIGH_RISK_KEYWORDS` and :data:`_LOW_RISK_KEYWORDS`.  Unknown text
-    defaults to medium risk (1).  The result is always clamped to ``[0, 2]``.
-
-    Args:
-        text: The user's choice text (a numbered option or free text).
-
-    Returns:
-        Risk-gain integer in the range ``[0, 2]``.
-    """
-    lower = text.lower()
-    for kw in _HIGH_RISK_KEYWORDS:
-        if kw in lower:
-            return 2
-    for kw in _LOW_RISK_KEYWORDS:
-        if kw in lower:
-            return 0
-    return 1  # default: medium risk
-
-
-# ---------------------------------------------------------------------------
-# System prompts
-# ---------------------------------------------------------------------------
-
+ main
 # System prompt sent with every request.  It primes the model to produce
 # short, numbered-choice output that fits within LoRa packet constraints.
 _SYSTEM_PROMPT = (
@@ -305,22 +206,36 @@ class StoryEngine:
     # Story actions
     # ------------------------------------------------------------------
 
-    async def start_story(self, user_key: str, user_name: str) -> str:
+    async def start_story(
+        self, user_key: str, user_name: str, genre: str = DEFAULT_GENRE
+    ) -> str:
         """Begin a fresh adventure for *user_key* and return the opening text.
 
         A new :class:`Session` is always created, replacing any existing one.
+
+        Args:
+            user_key: Unique identifier for the user (pubkey_prefix).
+            user_name: Human-readable name used in the opening prompt.
+            genre: Genre ID from :data:`GENRES` (default: ``"wasteland"``).
         """
         session = Session(user_key, user_name, self._max_history)
         self._sessions[user_key] = session
 
+        genre_info = GENRES.get(genre, GENRES[DEFAULT_GENRE])
         prompt = (
-            f"Begin a new CYOA adventure for {user_name}. "
+            f"Begin a new CYOA adventure for {user_name} in the "
+            f"{genre_info['name']} genre ({genre_info['desc']}). "
             "Opening scene + 3 numbered choices. Under 220 chars total."
         )
         session.add_message("user", prompt)
         reply = await self._call_llm(session)
         session.add_message("assistant", reply)
-        log.info("Started new story for %s (%s)", user_name, user_key)
+        log.info(
+            "Started new story for %s (%s) in genre '%s'",
+            user_name,
+            user_key,
+            genre,
+        )
         return reply
 
     async def advance_story(self, user_key: str, choice: Any) -> str:
