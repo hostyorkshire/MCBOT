@@ -298,7 +298,6 @@ class TestRadioSettings:
 
 class TestListSerialPorts:
     def test_returns_sorted_list(self):
-        fake_ports = ["/dev/ttyUSB1", "/dev/ttyUSB0", "/dev/ttyACM0"]
         with patch("meshcore_radio_config._glob.glob") as mock_glob:
             mock_glob.side_effect = lambda pattern: (
                 ["/dev/ttyUSB1", "/dev/ttyUSB0"]

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -224,4 +223,46 @@ class TestFormatReply:
 
 
 # ---------------------------------------------------------------------------
- main
+# Pacing constants sanity checks
+# ---------------------------------------------------------------------------
+
+
+class TestPacingConstants:
+    def test_doom_max_is_positive(self):
+        assert DOOM_MAX > 0
+
+    def test_scenes_per_chapter_is_positive(self):
+        assert SCENES_PER_CHAPTER > 0
+
+    def test_max_chapters_is_positive(self):
+        assert MAX_CHAPTERS > 0
+
+    def test_doom_max_allows_multiple_scenes(self):
+        # A single scene at chapter 1 adds at most 1 (baseline) + 2 (high risk) = 3 doom.
+        # DOOM_MAX must allow at least a few scenes before triggering.
+        assert DOOM_MAX >= SCENES_PER_CHAPTER * 2
+
+
+# ---------------------------------------------------------------------------
+# classify_choice unit tests
+# ---------------------------------------------------------------------------
+
+
+class TestClassifyChoice:
+    def test_risky_choice_returns_two(self):
+        assert classify_choice("attack the guard") == 2
+
+    def test_safe_choice_returns_zero(self):
+        assert classify_choice("hide behind the barrel") == 0
+
+    def test_neutral_choice_returns_one(self):
+        assert classify_choice("go through the door") == 1
+
+    def test_numeric_choice_returns_one(self):
+        assert classify_choice("1") == 1
+
+    def test_case_insensitive(self):
+        assert classify_choice("FIGHT the dragon") == 2
+
+    def test_empty_string_returns_one(self):
+        assert classify_choice("") == 1
