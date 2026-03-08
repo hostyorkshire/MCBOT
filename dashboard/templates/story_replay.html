@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{ story.user_name }}'s Adventure – MCBOT Story Replay</title>
+  <link rel="stylesheet" href="{{ url_for('dashboard.static', filename='style.css') }}" />
+  <style>
+    /* ── Story replay overrides ──────────────────────────────────────── */
+    .replay-header      { margin-bottom: 1.5rem; }
+    .replay-meta        { display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem;
+                          font-size: 0.85rem; color: #555; margin-top: 0.5rem; }
+    .replay-meta span   { display: inline-flex; align-items: center; gap: 0.3rem; }
+    .end-badge          { display: inline-block; padding: 0.25rem 0.7rem;
+                          border-radius: 999px; font-size: 0.8rem; font-weight: 700;
+                          border: 3px solid var(--ink); }
+    .end-doom           { background: var(--blob-pink);   color: var(--ink); }
+    .end-max_chapters   { background: var(--blob-orange); color: var(--ink); }
+    .end-player_choice  { background: var(--blob-teal);   color: var(--ink); }
+    .end-unknown        { background: #eee; color: var(--ink); }
+
+    /* ── Turn-by-turn transcript ─────────────────────────────────────── */
+    .transcript         { display: flex; flex-direction: column; gap: 1rem; }
+    .turn               { border-radius: 12px; border: 3px solid var(--ink);
+                          padding: 0.9rem 1.1rem; }
+    .turn-scene         { background: var(--cream); }
+    .turn-choice        { background: #e8f7f5; }
+    .turn-label         { font-size: 0.7rem; text-transform: uppercase;
+                          letter-spacing: 0.08em; font-weight: 700; opacity: 0.55;
+                          margin-bottom: 0.35rem; }
+    .turn-content       { white-space: pre-wrap; line-height: 1.55; }
+
+    /* ── Back link ───────────────────────────────────────────────────── */
+    .back-link          { display: inline-block; margin-top: 1.5rem;
+                          color: var(--blob-purple); font-weight: 700; }
+
+    /* ── Print helpers ───────────────────────────────────────────────── */
+    @media print {
+      body::before, body::after { display: none; }
+      .back-link, .btn-refresh, .refresh-bar { display: none; }
+      .card { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="page-wrapper">
+
+    <!-- ── Header ──────────────────────────────────────────────── -->
+    <header>
+      <p class="badge">📡 Story Replay</p>
+      <h1>MCBOT <span>Story</span></h1>
+      <p class="tagline">A personal adventure replay — for {{ story.user_name }}'s eyes only 🎮</p>
+    </header>
+
+    <!-- ── Story metadata card ─────────────────────────────────── -->
+    <section class="card replay-header" aria-labelledby="meta-heading">
+      <h2 id="meta-heading">📖 {{ story.user_name }}'s Adventure</h2>
+      <div class="replay-meta">
+        <span>🗺️ <strong>{{ story.genre_name or story.genre }}</strong></span>
+        <span>📅 Started:
+          <strong id="started-at" data-ts="{{ story.started_at }}">—</strong>
+        </span>
+        <span>🏁 Ended:
+          <strong id="ended-at" data-ts="{{ story.ended_at or '' }}">—</strong>
+        </span>
+        <span>📚 Chapters: <strong>{{ story.chapters }}</strong></span>
+        {% if story.end_reason %}
+        <span>
+          {% if story.end_reason == "doom" %}
+          <span class="end-badge end-doom">☠️ Peril Finale</span>
+          {% elif story.end_reason == "max_chapters" %}
+          <span class="end-badge end-max_chapters">⚡ Epic Finale</span>
+          {% elif story.end_reason == "player_choice" %}
+          <span class="end-badge end-player_choice">✅ Player Ended</span>
+          {% else %}
+          <span class="end-badge end-unknown">{{ story.end_reason }}</span>
+          {% endif %}
+        </span>
+        {% endif %}
+      </div>
+    </section>
+
+    <!-- ── Full transcript ─────────────────────────────────────── -->
+    <section class="card" aria-labelledby="transcript-heading">
+      <h2 id="transcript-heading">📜 Full Transcript</h2>
+      <div class="transcript">
+        {% set history = story.history or [] %}
+        {% for msg in history %}
+          {# Skip the opening system prompt sent by the bot (first user message) #}
+          {% if loop.first and msg.role == "user" %}{% continue %}{% endif %}
+          {% if msg.role == "assistant" %}
+          <div class="turn turn-scene">
+            <div class="turn-label">🌍 Scene</div>
+            <div class="turn-content">{{ msg.content }}</div>
+          </div>
+          {% elif msg.role == "user" %}
+          {% set choice = msg.content %}
+          {# Strip common bot-generated prefixes for cleaner display #}
+          {% if choice.startswith("I choose option ") %}
+            {% set choice = choice[16:] | replace(".", "") %}
+          {% elif choice.startswith("I choose: ") %}
+            {% set choice = choice[10:] | replace(".", "") %}
+          {% endif %}
+          <div class="turn turn-choice">
+            <div class="turn-label">🧭 Player chose</div>
+            <div class="turn-content">{{ choice }}</div>
+          </div>
+          {% endif %}
+        {% else %}
+          <p class="empty-note">No transcript available.</p>
+        {% endfor %}
+      </div>
+    </section>
+
+    <!-- ── Footer / back link ──────────────────────────────────── -->
+    <a class="back-link" href="{{ url_for('dashboard.index') }}">← Back to dashboard</a>
+
+    <footer>
+      MCBOT – MeshCore CYOA Story Bot &nbsp;·&nbsp;
+      <a href="https://github.com/hostyorkshire/MCBOT" target="_blank" rel="noopener">
+        github.com/hostyorkshire/MCBOT
+      </a>
+    </footer>
+
+  </div><!-- /.page-wrapper -->
+
+  <script>
+    // Format timestamps from Unix epoch.
+    function fmtTs(ts) {
+      if (!ts) return "—";
+      const d = new Date(parseFloat(ts) * 1000);
+      return d.toLocaleString([], {
+        year: "numeric", month: "short", day: "numeric",
+        hour: "2-digit", minute: "2-digit"
+      });
+    }
+    document.getElementById("started-at").textContent =
+      fmtTs(document.getElementById("started-at").dataset.ts);
+    const endEl = document.getElementById("ended-at");
+    endEl.textContent = fmtTs(endEl.dataset.ts);
+  </script>
+
+</body>
+</html>

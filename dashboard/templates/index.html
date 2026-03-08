@@ -77,6 +77,26 @@
       </div>
     </section>
 
+    <!-- ── Archived stories card ───────────────────────────────── -->
+    <section class="card" aria-labelledby="archive-heading">
+      <h2 id="archive-heading">🗃️ Archived Stories</h2>
+      <div id="archive-container">
+        <p class="empty-note" id="archive-empty">Loading…</p>
+        <table class="stories-table" id="archive-table" style="display:none" aria-label="Archived story sessions">
+          <thead>
+            <tr>
+              <th>User</th>
+              <th>Genre</th>
+              <th>Chapters</th>
+              <th>Ended</th>
+              <th>Replay</th>
+            </tr>
+          </thead>
+          <tbody id="archive-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
     <!-- ── Footer ──────────────────────────────────────────────── -->
     <footer>
       MCBOT – MeshCore CYOA Story Bot &nbsp;·&nbsp;
@@ -89,8 +109,11 @@
 
   <script>
     // ── Constants ──────────────────────────────────────────────────
-    const STATUS_URL  = "{{ url_for('dashboard.api_status') }}";
-    const STORIES_URL = "{{ url_for('dashboard.api_stories') }}";
+    const STATUS_URL   = "{{ url_for('dashboard.api_status') }}";
+    const STORIES_URL  = "{{ url_for('dashboard.api_stories') }}";
+    const ARCHIVE_URL  = "{{ url_for('dashboard.api_archived_stories') }}";
+    {% set _replay_tmpl = url_for('dashboard.story_replay', token='PLACEHOLDER_TOKEN') %}
+    const REPLAY_BASE  = {{ _replay_tmpl | tojson }}.slice(0, -"PLACEHOLDER_TOKEN".length);
     const AUTO_REFRESH_MS = 10_000;  // refresh every 10 s
 
     // ── Helpers ────────────────────────────────────────────────────
@@ -121,6 +144,13 @@
     // ── Fetch stories ──────────────────────────────────────────────
     async function fetchStories() {
       const res = await fetch(STORIES_URL);
+      if (!res.ok) throw new Error(`status ${res.status}`);
+      return res.json();
+    }
+
+    // ── Fetch archived stories ─────────────────────────────────────
+    async function fetchArchive() {
+      const res = await fetch(ARCHIVE_URL);
       if (!res.ok) throw new Error(`status ${res.status}`);
       return res.json();
     }
@@ -166,6 +196,44 @@
       });
     }
 
+    // ── Render archived stories table ─────────────────────────────
+    function renderArchive(stories) {
+      const tbody = document.getElementById("archive-tbody");
+      const table = document.getElementById("archive-table");
+      const empty = document.getElementById("archive-empty");
+
+      tbody.innerHTML = "";
+
+      if (!stories || stories.length === 0) {
+        table.style.display = "none";
+        empty.style.display = "block";
+        empty.textContent   = "No completed stories archived yet.";
+        return;
+      }
+
+      table.style.display = "";
+      empty.style.display = "none";
+
+      // Show most-recent first.
+      [...stories].reverse().forEach(s => {
+        const tr = document.createElement("tr");
+        const replayUrl = REPLAY_BASE + encodeURIComponent(s.token || "");
+        const endLabel = {
+          "doom":          "☠️ Peril",
+          "max_chapters":  "⚡ Epic",
+          "player_choice": "✅ Player",
+        }[s.end_reason] || "—";
+        tr.innerHTML = `
+          <td data-label="User">${escHtml(s.user_name)}</td>
+          <td data-label="Genre"><span class="genre-tag">${escHtml(s.genre_name || s.genre)}</span></td>
+          <td data-label="Chapters">${s.chapters || "—"}</td>
+          <td data-label="Ended">${fmtDate(s.ended_at || s.archived_at)}</td>
+          <td data-label="Replay"><a href="${replayUrl}" target="_blank" rel="noopener">📖 View</a></td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
     // ── Sanitise HTML ──────────────────────────────────────────────
     function escHtml(str) {
       return String(str)
@@ -179,9 +247,12 @@
     async function fetchAll() {
       const banner = document.getElementById("error-banner");
       try {
-        const [status, stories] = await Promise.all([fetchStatus(), fetchStories()]);
+        const [status, stories, archive] = await Promise.all([
+          fetchStatus(), fetchStories(), fetchArchive()
+        ]);
         renderStatus(status, stories.length);
         renderStories(stories);
+        renderArchive(archive);
         banner.classList.remove("visible");
         document.getElementById("last-updated").textContent =
           "Updated " + new Date().toLocaleTimeString();

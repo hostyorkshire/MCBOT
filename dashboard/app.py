@@ -9,19 +9,26 @@ or, for auto-reload during development::
 
     flask --app dashboard.app run --debug
 
-The dashboard is served at ``/dashboard/`` and exposes two JSON API endpoints:
+The dashboard is served at ``/dashboard/`` and exposes JSON API endpoints:
 
-* ``/dashboard/api/status``  – bot status (running/idle/offline, uptime, errors)
-* ``/dashboard/api/stories`` – list of currently active story sessions
+* ``/dashboard/api/status``           – bot status (running/idle/offline, uptime, errors)
+* ``/dashboard/api/stories``          – list of currently active story sessions
+* ``/dashboard/api/stories/archived`` – summaries of all completed (archived) stories
+* ``/dashboard/api/replay/<token>``   – full JSON for one archived story (identified by token)
+
+A human-readable story replay page is served at:
+
+* ``/dashboard/story/<token>`` – protected replay page; only accessible with the token
 """
 
 from __future__ import annotations
 
 import os
 
-from flask import Blueprint, Flask, jsonify, render_template
+from flask import Blueprint, Flask, abort, jsonify, render_template
 
 from dashboard.state import get_sessions, get_status
+from dashboard.story_archive import get_story_by_token, list_archived_stories
 
 # ---------------------------------------------------------------------------
 # Blueprint – all routes live under /dashboard/
@@ -51,6 +58,30 @@ def api_status():
 def api_stories():
     """Return active story sessions as JSON."""
     return jsonify(get_sessions())
+
+
+@bp.route("/api/stories/archived")
+def api_archived_stories():
+    """Return a list of archived story summaries as JSON (history excluded)."""
+    return jsonify(list_archived_stories())
+
+
+@bp.route("/api/replay/<token>")
+def api_replay(token: str):
+    """Return the full archived story JSON for *token* (includes history)."""
+    story = get_story_by_token(token)
+    if story is None:
+        abort(404)
+    return jsonify(story)
+
+
+@bp.route("/story/<token>")
+def story_replay(token: str):
+    """Render the story replay page for *token*."""
+    story = get_story_by_token(token)
+    if story is None:
+        abort(404)
+    return render_template("story_replay.html", story=story)
 
 
 # ---------------------------------------------------------------------------

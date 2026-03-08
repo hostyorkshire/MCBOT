@@ -29,7 +29,7 @@ import types
 from dotenv import load_dotenv
 from meshcore import EventType, MeshCore
 
-from story_engine import DEFAULT_GENRE, GENRES, StoryEngine
+from story_engine import DEFAULT_GENRE, GENRES, Session, StoryEngine
 from utils import chunk_message
 
 # ---------------------------------------------------------------------------
@@ -45,6 +45,14 @@ except ImportError:  # pragma: no cover – optional dependency
 
     def _write_dashboard_state(_data: dict) -> None:  # type: ignore[misc]
         """No-op fallback when the dashboard package is unavailable."""
+
+
+# Optional story archive – imported lazily so the bot starts even if the
+# dashboard package is not installed.
+try:
+    from dashboard.story_archive import archive_story as _archive_story_fn
+except ImportError:  # pragma: no cover – optional dependency
+    _archive_story_fn = None  # type: ignore[assignment]
 
 
 # ---------------------------------------------------------------------------
@@ -71,6 +79,11 @@ MAX_HISTORY: int = int(os.getenv("MAX_HISTORY", "10"))
 SEND_RETRIES: int = int(os.getenv("SEND_RETRIES", "3"))
 SEND_RETRY_BASE_DELAY: float = float(os.getenv("SEND_RETRY_BASE_DELAY", "0.5"))
 SEND_RETRY_MAX_DELAY: float = float(os.getenv("SEND_RETRY_MAX_DELAY", "3.0"))
+
+# Base URL of the local dashboard server.  When set, the bot appends a
+# story-replay link to the message sent to the player when their story ends.
+# Example: ``http://192.168.1.100:5000`` (no trailing slash).
+REPLAY_BASE_URL: str = os.getenv("REPLAY_BASE_URL", "").rstrip("/")
 
 HELP_TEXT: str = (
     "Commands:\n"
@@ -661,6 +674,9 @@ class BotHandler:
         self._processing: set[str] = set()
         # pubkey_prefix → monotonic timestamp of the last help-hint sent.
         self._last_help_hint: dict[str, float] = {}
+        # pubkey_prefixes whose completed story has already been archived,
+        # so we don't create duplicate archive entries on subsequent messages.
+        self._archived_sessions: set[str] = set()
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -712,6 +728,45 @@ class BotHandler:
         self._pending_genres.pop(pubkey_prefix, None)
         log.info("Confirmation timeout for %s – sending timeout message", pubkey_prefix)
         await self._send(pubkey_prefix, TIMEOUT_MSG)
+
+    async def _handle_story_end(self, pubkey_prefix: str) -> None:
+        """Archive a completed story and send the player a replay link.
+
+        Called after every :meth:`StoryEngine.advance_story` response.  Does
+        nothing if the session has not finished, if story archiving is
+        unavailable, or if the session was already archived in this run.
+        """
+        if _archive_story_fn is None:
+            return
+        session = self.story_engine.get_session(pubkey_prefix)
+        # Defensive type check: get_session() may return None or an
+        # unexpected type; only real finished Session objects are archived.
+        if not isinstance(session, Session) or not session.finished:
+            return
+        if pubkey_prefix in self._archived_sessions:
+            return
+        self._archived_sessions.add(pubkey_prefix)
+        genre_info = GENRES.get(session.genre, GENRES[DEFAULT_GENRE])
+        story_data = {
+            "user_key": session.user_key,
+            "user_name": session.user_name,
+            "genre": session.genre,
+            "genre_name": genre_info["name"],
+            "started_at": session.started_at,
+            "ended_at": time.time(),
+            "end_reason": session.end_reason,
+            "chapters": session.chapter,
+            "history": session.get_messages(),
+        }
+        try:
+            token = _archive_story_fn(story_data)
+        except Exception as exc:
+            log.warning("Failed to archive story for %s: %s", pubkey_prefix, exc)
+            return
+        if REPLAY_BASE_URL:
+            link = f"{REPLAY_BASE_URL}/dashboard/story/{token}"
+            await self._send(pubkey_prefix, f"Story saved! View your replay: {link}")
+            log.info("Sent replay link to %s: %s", pubkey_prefix, link)
 
     async def _start_onboarding(
         self,
@@ -796,6 +851,8 @@ class BotHandler:
         if command in _RESET_CMDS:
             log.info("Reset command from %s (%s)", user_name, pubkey_prefix)
             self.story_engine.clear_session(pubkey_prefix)
+            # Allow the player's next completed story to be archived fresh.
+            self._archived_sessions.discard(pubkey_prefix)
             command = "start"
 
         # --- start onboarding (also reached after reset) ---
@@ -832,6 +889,8 @@ class BotHandler:
                     stored_name,
                     pubkey_prefix,
                 )
+                # A new story starts fresh; clear any previous archive guard.
+                self._archived_sessions.discard(pubkey_prefix)
                 response = await self.story_engine.start_story(
                     pubkey_prefix, stored_name, genre=stored_genre
                 )
@@ -887,6 +946,8 @@ class BotHandler:
             return
 
         await self._send_story(pubkey_prefix, response)
+        # If the story just finished, archive it and send the player a replay link.
+        await self._handle_story_end(pubkey_prefix)
 
 
 # ---------------------------------------------------------------------------

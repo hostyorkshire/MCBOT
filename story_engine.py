@@ -291,6 +291,9 @@ class Session:
             user to choose Continue (1), Pause (2), or End (3) at a chapter
             boundary.
         finished: ``True`` once the story has reached a peril finale.
+        end_reason: Human-readable reason why the story ended.  One of
+            ``"doom"``, ``"max_chapters"``, or ``"player_choice"``.  Empty
+            string while the story is still in progress.
         genre: Genre ID for this session (e.g. ``"wasteland"``).
         started_at: Unix timestamp when the session was created.
     """
@@ -307,6 +310,7 @@ class Session:
         self.continue_after_ts: float | None = None
         self.awaiting_chapter_choice: bool = False
         self.finished: bool = False
+        self.end_reason: str = ""
         # Dashboard metadata
         self.genre: str = DEFAULT_GENRE
         self.started_at: float = time.time()
@@ -354,6 +358,10 @@ class StoryEngine:
     def has_session(self, user_key: str) -> bool:
         """Return ``True`` if an active session exists for *user_key*."""
         return user_key in self._sessions
+
+    def get_session(self, user_key: str) -> Session | None:
+        """Return the active :class:`Session` for *user_key*, or ``None``."""
+        return self._sessions.get(user_key)
 
     def clear_session(self, user_key: str) -> None:
         """Delete the session for *user_key*, if any."""
@@ -484,6 +492,7 @@ class StoryEngine:
             if digit == "3":
                 # End – close the story.
                 session.awaiting_chapter_choice = False
+                session.end_reason = "player_choice"
                 session.finished = True
                 log.info("Story ended by player %s", user_key)
                 return "Your adventure ends here.\n[END]\n1. Start over\n2. New adventure\n3. Quit"
@@ -516,6 +525,7 @@ class StoryEngine:
             session.add_message("user", f"I choose: {choice_text}.")
             reply = await self._call_llm(session, system_prompt=_PERIL_FINALE_SYSTEM)
             session.add_message("assistant", reply)
+            session.end_reason = "doom"
             session.finished = True
             log.info(
                 "Peril finale for %s (doom=%d >= DOOM_MAX=%d)",
@@ -532,6 +542,7 @@ class StoryEngine:
                 session.add_message("user", f"I choose: {choice_text}.")
                 reply = await self._call_llm(session, system_prompt=_PERIL_FINALE_SYSTEM)
                 session.add_message("assistant", reply)
+                session.end_reason = "max_chapters"
                 session.finished = True
                 log.info(
                     "Forced peril finale for %s (chapter=%d >= MAX_CHAPTERS=%d)",
