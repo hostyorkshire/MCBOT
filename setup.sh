@@ -41,6 +41,9 @@ echo "Installing Python requirements into the virtual environment ..."
 echo "Installing dev/monitor requirements into the virtual environment ..."
 "$VENV_DIR/bin/pip" install --quiet -r requirements-dev.txt
 
+echo "Installing dashboard requirements into the virtual environment ..."
+"$VENV_DIR/bin/pip" install --quiet -r dashboard/requirements.txt
+
 echo "Python dependencies installed successfully."
 printf "\n"
 
@@ -200,6 +203,23 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Create dashboard.sh helper (idempotent)
+# ---------------------------------------------------------------------------
+
+DASHBOARD_SH="$(cd "$(dirname "$0")" && pwd)/dashboard.sh"
+cat > "${DASHBOARD_SH}" << 'EOF'
+#!/bin/bash
+# Convenience wrapper – activates the venv and starts the web dashboard.
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=/dev/null
+source "${SCRIPT_DIR}/.venv/bin/activate"
+exec python -m dashboard.app
+EOF
+chmod +x "${DASHBOARD_SH}"
+echo "dashboard.sh helper written to ${DASHBOARD_SH}"
+
+# ---------------------------------------------------------------------------
 # Offer to start the mcbot monitor
 # ---------------------------------------------------------------------------
 
@@ -215,3 +235,22 @@ else
     echo "  ${VENV_DIR}/bin/python mcbot_monitor.py --info"
     echo "  ${VENV_DIR}/bin/python mcbot_monitor.py --list-serial"
 fi
+
+# ---------------------------------------------------------------------------
+# Final instructions
+# ---------------------------------------------------------------------------
+
+printf "\n"
+echo "======================================================================="
+echo " Setup complete!  Here is how to start everything:"
+echo "======================================================================="
+echo ""
+echo "  Start the bot:"
+echo "    source .venv/bin/activate && python cyoa_bot.py"
+echo ""
+echo "  Start the web dashboard:"
+echo "    ./dashboard.sh"
+echo ""
+echo "  Then open your browser at:  http://localhost:5000"
+echo ""
+echo "======================================================================="
