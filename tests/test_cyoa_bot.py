@@ -651,8 +651,13 @@ class TestCheckEnv:
 
 
 EXPECTED_HELP_TEXT = (
-    "help/?=this. genres=list genres. start/new/begin [genre|#]=begin story. "
-    "restart/reset=reset. In story: 1/2/3 or text. 60s to confirm."
+    "Commands:\n"
+    "- help / ? \u2014 show this message\n"
+    "- genres \u2014 list genres\n"
+    "- start / new / begin <genre name or number>\n"
+    "- restart / reset \u2014 reset\n"
+    "\n"
+    "(If prompted: 1/2/3 or text. 60s confirm.)"
 )
 
 
