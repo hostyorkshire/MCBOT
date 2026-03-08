@@ -657,7 +657,7 @@ EXPECTED_HELP_TEXT = (
     "- start / new / begin <genre name or number>\n"
     "- restart / reset \u2014 reset\n"
     "\n"
-    "(If prompted: 1/2/3 or text. 60s confirm.)"
+    "(If prompted: 1/2/3 or text. 180s confirm.)"
 )
 
 
