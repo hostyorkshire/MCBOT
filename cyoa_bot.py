@@ -22,6 +22,7 @@ import asyncio
 import glob
 import logging
 import os
+import random
 import time
 import types
 
@@ -52,6 +53,9 @@ GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
 MAX_CHUNK_SIZE: int = int(os.getenv("MAX_CHUNK_SIZE", "200"))
 CHUNK_DELAY: float = float(os.getenv("CHUNK_DELAY", "2.0"))
 MAX_HISTORY: int = int(os.getenv("MAX_HISTORY", "10"))
+SEND_RETRIES: int = int(os.getenv("SEND_RETRIES", "3"))
+SEND_RETRY_BASE_DELAY: float = float(os.getenv("SEND_RETRY_BASE_DELAY", "0.5"))
+SEND_RETRY_MAX_DELAY: float = float(os.getenv("SEND_RETRY_MAX_DELAY", "3.0"))
 
 HELP_TEXT: str = (
     "Commands:\n"
@@ -533,8 +537,17 @@ async def send_chunked(
     text: str,
     chunk_size: int,
     delay: float,
+    retries: int = SEND_RETRIES,
+    retry_base_delay: float = SEND_RETRY_BASE_DELAY,
+    retry_max_delay: float = SEND_RETRY_MAX_DELAY,
 ) -> None:
     """Send *text* to *destination*, splitting into LoRa-sized chunks.
+
+    Each chunk is attempted up to *retries* times with exponential backoff and
+    a small random jitter between attempts.  Only sleeps between retry attempts
+    (not before the first try).  On final failure the error is logged and the
+    function continues to the next chunk, preserving existing non-raising
+    behaviour.
 
     Args:
         mc: Connected :class:`~meshcore.MeshCore` instance.
@@ -542,16 +555,50 @@ async def send_chunked(
         text: Full message text (may be longer than one LoRa packet).
         chunk_size: Maximum characters per chunk.
         delay: Seconds to wait between consecutive chunks.
+        retries: Maximum number of send attempts per chunk (must be ≥ 1).
+        retry_base_delay: Base delay in seconds for the first retry backoff.
+        retry_max_delay: Maximum delay in seconds between retries.
     """
     chunks = chunk_message(text, chunk_size)
     for i, chunk in enumerate(chunks):
         if i > 0:
             await asyncio.sleep(delay)
-        try:
-            await mc.commands.send_msg(destination, chunk)
-            log.debug("Sent chunk %d/%d to %s", i + 1, len(chunks), destination)
-        except Exception as exc:
-            log.error("Failed to send chunk %d to %s: %s", i + 1, destination, exc)
+        last_exc: Exception | None = None
+        for attempt in range(retries):
+            if attempt > 0:
+                backoff = min(retry_base_delay * (2 ** (attempt - 1)), retry_max_delay)
+                jitter = backoff * 0.1 * random.random()
+                await asyncio.sleep(backoff + jitter)
+            try:
+                await mc.commands.send_msg(destination, chunk)
+                log.debug(
+                    "Sent chunk %d/%d to %s (attempt %d)",
+                    i + 1,
+                    len(chunks),
+                    destination,
+                    attempt + 1,
+                )
+                last_exc = None
+                break
+            except Exception as exc:
+                last_exc = exc
+                if attempt + 1 < retries:
+                    log.warning(
+                        "Attempt %d/%d failed for chunk %d to %s: %s",
+                        attempt + 1,
+                        retries,
+                        i + 1,
+                        destination,
+                        exc,
+                    )
+        if last_exc is not None:
+            log.error(
+                "All %d attempts failed for chunk %d to %s: %s",
+                retries,
+                i + 1,
+                destination,
+                last_exc,
+            )
 
 
 # ---------------------------------------------------------------------------
