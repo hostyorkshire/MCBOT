@@ -215,7 +215,7 @@
       empty.style.display = "none";
 
       // Show most-recent first.
-      [...stories].reverse().forEach(s => {
+      stories.slice().reverse().forEach(s => {
         const tr = document.createElement("tr");
         const replayUrl = REPLAY_BASE + encodeURIComponent(s.token || "");
         const endLabel = {

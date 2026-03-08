@@ -87,9 +87,14 @@
       <div class="transcript">
         {% set history = story.history or [] %}
         {% for msg in history %}
-          {# Skip the opening system prompt sent by the bot (first user message) #}
-          {% if loop.first and msg.role == "user" %}{% continue %}{% endif %}
-          {% if msg.role == "assistant" %}
+          {#
+            The very first user message is always the internal bot setup prompt
+            (e.g. "Begin a new CYOA adventure for …").  Skip it so the replay
+            opens with the actual story text from the assistant.
+          #}
+          {% if loop.first and msg.role == "user" %}
+            {# intentionally skipped #}
+          {% elif msg.role == "assistant" %}
           <div class="turn turn-scene">
             <div class="turn-label">🌍 Scene</div>
             <div class="turn-content">{{ msg.content }}</div>

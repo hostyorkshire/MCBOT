@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import json
-import os
-from unittest.mock import patch
+import re
 
 import pytest
 
@@ -41,10 +39,10 @@ def _make_story_data(**kwargs) -> dict:
 
 @pytest.fixture()
 def tmp_archive(tmp_path, monkeypatch):
-    """Redirect the archive file to a temporary directory for each test."""
-    archive_path = str(tmp_path / "story_archive.json")
-    monkeypatch.setattr("dashboard.story_archive.ARCHIVE_FILE", archive_path)
-    return archive_path
+    """Redirect the archive database to a temporary directory for each test."""
+    db_path = str(tmp_path / "stories.db")
+    monkeypatch.setattr("dashboard.story_archive.ARCHIVE_DB_PATH", db_path)
+    return db_path
 
 
 # ---------------------------------------------------------------------------
@@ -60,73 +58,45 @@ class TestArchiveStory:
 
     def test_token_is_url_safe(self, tmp_archive):
         """Token must only contain URL-safe base64 characters."""
-        import re
-
         token = archive_story(_make_story_data())
         assert re.fullmatch(r"[A-Za-z0-9_\-]+", token)
 
-    def test_archive_file_created(self, tmp_archive):
+    def test_database_file_created(self, tmp_archive):
+        import os
+
         archive_story(_make_story_data())
         assert os.path.exists(tmp_archive)
 
-    def test_archive_file_is_valid_json(self, tmp_archive):
-        archive_story(_make_story_data())
-        with open(tmp_archive) as fh:
-            data = json.load(fh)
-        assert isinstance(data, list)
-
-    def test_archived_entry_contains_token(self, tmp_archive):
-        token = archive_story(_make_story_data())
-        with open(tmp_archive) as fh:
-            entries = json.load(fh)
-        assert any(e.get("token") == token for e in entries)
-
-    def test_archived_entry_contains_user_name(self, tmp_archive):
-        archive_story(_make_story_data(user_name="Bob"))
-        with open(tmp_archive) as fh:
-            entries = json.load(fh)
-        assert entries[-1]["user_name"] == "Bob"
+    def test_archived_entry_retrievable(self, tmp_archive):
+        """A story archived via archive_story can be fetched by its token."""
+        token = archive_story(_make_story_data(user_name="Bob"))
+        story = get_story_by_token(token)
+        assert story is not None
+        assert story["user_name"] == "Bob"
 
     def test_archived_entry_contains_archived_at(self, tmp_archive):
-        archive_story(_make_story_data())
-        with open(tmp_archive) as fh:
-            entries = json.load(fh)
-        assert "archived_at" in entries[-1]
+        token = archive_story(_make_story_data())
+        story = get_story_by_token(token)
+        assert story is not None
+        assert "archived_at" in story
+        assert story["archived_at"] > 0
 
-    def test_multiple_stories_appended(self, tmp_archive):
+    def test_multiple_stories_stored(self, tmp_archive):
         archive_story(_make_story_data(user_name="Alice"))
         archive_story(_make_story_data(user_name="Bob"))
-        with open(tmp_archive) as fh:
-            entries = json.load(fh)
-        assert len(entries) == 2
+        summaries = list_archived_stories()
+        assert len(summaries) == 2
 
     def test_tokens_are_unique(self, tmp_archive):
         t1 = archive_story(_make_story_data())
         t2 = archive_story(_make_story_data())
         assert t1 != t2
 
-    def test_pruning_keeps_max_stories(self, tmp_archive):
-        """When the archive exceeds MAX_ARCHIVED_STORIES, old entries are pruned."""
-        with patch("dashboard.story_archive.MAX_ARCHIVED_STORIES", 3):
-            for i in range(5):
-                archive_story(_make_story_data(user_name=f"User{i}"))
-        with open(tmp_archive) as fh:
-            entries = json.load(fh)
-        assert len(entries) == 3
-        # Most-recent entries should be retained.
-        assert entries[-1]["user_name"] == "User4"
-
-    def test_write_error_is_logged_not_raised(self, tmp_archive, caplog):
-        """If writing fails, a warning is logged and no exception propagates."""
-        import logging
-
-        with (
-            patch("builtins.open", side_effect=OSError("disk full")),
-            caplog.at_level(logging.WARNING, logger="dashboard.story_archive"),
-        ):
-            # Should not raise.
-            archive_story(_make_story_data())
-        assert "Could not write story archive" in caplog.text
+    def test_many_stories_all_stored(self, tmp_archive):
+        """SQLite stores every entry; there is no hard pruning cap."""
+        for i in range(20):
+            archive_story(_make_story_data(user_name=f"User{i}"))
+        assert len(list_archived_stories()) == 20
 
 
 # ---------------------------------------------------------------------------
@@ -157,9 +127,26 @@ class TestGetStoryByToken:
         assert "history" in story
         assert len(story["history"]) == 2
 
-    def test_returns_none_when_file_missing(self, tmp_archive):
-        # File was never created – just the fixture path.
+    def test_history_is_list_of_dicts(self, tmp_archive):
+        token = archive_story(_make_story_data())
+        story = get_story_by_token(token)
+        assert isinstance(story["history"], list)
+        assert all(isinstance(m, dict) for m in story["history"])
+
+    def test_returns_none_when_db_missing(self, tmp_archive):
+        # DB file was never created – the connection initialises it, so we
+        # expect an empty result rather than an exception.
         assert get_story_by_token("any-token") is None
+
+    def test_story_includes_end_reason(self, tmp_archive):
+        token = archive_story(_make_story_data(end_reason="doom"))
+        story = get_story_by_token(token)
+        assert story["end_reason"] == "doom"
+
+    def test_story_includes_chapters(self, tmp_archive):
+        token = archive_story(_make_story_data(chapters=5))
+        story = get_story_by_token(token)
+        assert story["chapters"] == 5
 
 
 # ---------------------------------------------------------------------------
@@ -168,7 +155,7 @@ class TestGetStoryByToken:
 
 
 class TestListArchivedStories:
-    def test_returns_empty_list_when_no_archive(self, tmp_archive):
+    def test_returns_empty_list_when_no_stories(self, tmp_archive):
         assert list_archived_stories() == []
 
     def test_returns_summaries_without_history(self, tmp_archive):
@@ -192,3 +179,11 @@ class TestListArchivedStories:
         archive_story(_make_story_data(user_name="Dave"))
         summaries = list_archived_stories()
         assert summaries[0]["user_name"] == "Dave"
+
+    def test_ordered_oldest_first(self, tmp_archive):
+        """list_archived_stories returns entries in insertion order."""
+        archive_story(_make_story_data(user_name="First"))
+        archive_story(_make_story_data(user_name="Second"))
+        summaries = list_archived_stories()
+        assert summaries[0]["user_name"] == "First"
+        assert summaries[1]["user_name"] == "Second"

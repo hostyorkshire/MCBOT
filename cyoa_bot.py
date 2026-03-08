@@ -84,7 +84,6 @@ SEND_RETRY_MAX_DELAY: float = float(os.getenv("SEND_RETRY_MAX_DELAY", "3.0"))
 # story-replay link to the message sent to the player when their story ends.
 # Example: ``http://192.168.1.100:5000`` (no trailing slash).
 REPLAY_BASE_URL: str = os.getenv("REPLAY_BASE_URL", "").rstrip("/")
-
 HELP_TEXT: str = (
     "Commands:\n"
     "- help / ? \u2014 show this message\n"
@@ -739,8 +738,8 @@ class BotHandler:
         if _archive_story_fn is None:
             return
         session = self.story_engine.get_session(pubkey_prefix)
-        # Defensive type check: get_session() may return None or an
-        # unexpected type; only real finished Session objects are archived.
+        # get_session() returns Session | None; check both the type and the
+        # finished flag before archiving.
         if not isinstance(session, Session) or not session.finished:
             return
         if pubkey_prefix in self._archived_sessions:
@@ -755,6 +754,8 @@ class BotHandler:
             "started_at": session.started_at,
             "ended_at": time.time(),
             "end_reason": session.end_reason,
+            # session.chapter holds the last (highest) chapter reached,
+            # which equals the total number of chapters in the story.
             "chapters": session.chapter,
             "history": session.get_messages(),
         }
