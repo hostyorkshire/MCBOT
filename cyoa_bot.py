@@ -65,9 +65,7 @@ HELP_TEXT: str = (
 
 # Compact genre list sent in response to the ``genres`` command.
 GENRES_TEXT: str = (
-    "Genres: "
-    + " ".join(f"{i + 1}.{gid}" for i, gid in enumerate(GENRES))
-    + " | start <name|#>"
+    "Genres: " + " ".join(f"{i + 1}.{gid}" for i, gid in enumerate(GENRES)) + " | start <name|#>"
 )
 
 # Onboarding / confirmation messages
@@ -160,9 +158,7 @@ def _connection_error_hint(port: str, baud: int) -> str:
         alt = next((d for d in candidates if d != port), candidates[0])
         lines.append(f"  • Try an alternate port, e.g.:  --port {alt}")
     else:
-        lines.append(
-            "No candidate serial devices found (/dev/ttyUSB*, /dev/ttyACM*)."
-        )
+        lines.append("No candidate serial devices found (/dev/ttyUSB*, /dev/ttyACM*).")
         lines.append("  → Check USB cable and device power.")
         lines.append("  → Run: dmesg | tail -20  (look for ttyUSB or ttyACM)")
         lines.append("")
@@ -207,20 +203,14 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--port",
         default=SERIAL_PORT,
         metavar="DEVICE",
-        help=(
-            "Serial device path, e.g. /dev/ttyUSB0  "
-            "[env: SERIAL_PORT, default: %(default)s]"
-        ),
+        help=("Serial device path, e.g. /dev/ttyUSB0  [env: SERIAL_PORT, default: %(default)s]"),
     )
     parser.add_argument(
         "--baud",
         type=int,
         default=BAUD_RATE,
         metavar="RATE",
-        help=(
-            "Serial baud rate  "
-            "[env: BAUD_RATE, default: %(default)s]"
-        ),
+        help=("Serial baud rate  [env: BAUD_RATE, default: %(default)s]"),
     )
     parser.add_argument(
         "--check-env",
@@ -351,7 +341,7 @@ def _split_story_choices(text: str) -> tuple[str, str]:
     lines = text.splitlines()
     for i, line in enumerate(lines):
         stripped = line.strip()
-        if stripped.startswith("1. ") or stripped.startswith("1) "):
+        if stripped.startswith(("1. ", "1) ")):
             narrative = "\n".join(lines[:i]).strip()
             choices = "\n".join(lines[i:]).strip()
             return narrative, choices
@@ -401,9 +391,7 @@ def _normalise_drain_result(result: object) -> list[dict]:
         else:
             items = [result]
     else:
-        log.warning(
-            "Unexpected drain result type %s – skipping", type(result).__name__
-        )
+        log.warning("Unexpected drain result type %s – skipping", type(result).__name__)
         return []
 
     payloads: list[dict] = []
@@ -451,7 +439,7 @@ async def _drain_inbox(commands: object) -> list[dict]:
         while True:
             try:
                 event = await get_msg()
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 log.warning("mc.commands.get_msg() raised an error: %s", exc)
                 break
             event_type = getattr(event, "type", None)
@@ -468,9 +456,7 @@ async def _drain_inbox(commands: object) -> list[dict]:
             txt: str = raw_payload.get("text", "")
             dedup_key = (pk, txt)
             if dedup_key in seen:
-                log.debug(
-                    "Skipping duplicate get_msg() payload from %s: %r", pk, txt
-                )
+                log.debug("Skipping duplicate get_msg() payload from %s: %r", pk, txt)
                 continue
             seen.add(dedup_key)
             payloads.append({**raw_payload, "pubkey_prefix": pk, "text": txt})
@@ -489,10 +475,8 @@ async def _drain_inbox(commands: object) -> list[dict]:
         except TypeError as exc:
             log.warning("mc.commands.%s() signature mismatch: %s", name, exc)
             continue
-        except Exception as exc:  # noqa: BLE001
-            log.warning(
-                "mc.commands.%s() raised an unexpected error: %s", name, exc
-            )
+        except Exception as exc:
+            log.warning("mc.commands.%s() raised an unexpected error: %s", name, exc)
             continue
         return _normalise_drain_result(result)
 
@@ -566,7 +550,7 @@ async def send_chunked(
         try:
             await mc.commands.send_msg(destination, chunk)
             log.debug("Sent chunk %d/%d to %s", i + 1, len(chunks), destination)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             log.error("Failed to send chunk %d to %s: %s", i + 1, destination, exc)
 
 
@@ -921,9 +905,7 @@ async def main(argv: list[str] | None = None) -> None:
     async def handle_messages_waiting(event) -> None:  # type: ignore[type-arg]
         """Drain queued messages when MeshCore signals MESSAGES_WAITING."""
         if _drain_lock.locked():
-            log.debug(
-                "Drain already in progress – skipping MESSAGES_WAITING event"
-            )
+            log.debug("Drain already in progress – skipping MESSAGES_WAITING event")
             return
         async with _drain_lock:
             log.info("MESSAGES_WAITING received – draining inbox")

@@ -79,7 +79,7 @@ log = logging.getLogger(__name__)
 SERIAL_PORT: str = os.getenv("SERIAL_PORT", "/dev/ttyUSB0")
 BAUD_RATE: int = int(os.getenv("BAUD_RATE", "115200"))
 GROQ_API_KEY: str | None = os.getenv("GROQ_API_KEY")
-GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama3-8b-8192")
+GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -122,7 +122,7 @@ def cmd_info() -> None:
 
     # psutil is optional – fall back gracefully if not installed
     try:
-        import psutil  # noqa: PLC0415
+        import psutil
 
         boot_ts = psutil.boot_time()
         uptime_secs = time.time() - boot_ts
@@ -148,9 +148,10 @@ def cmd_info() -> None:
         print("  (install psutil for CPU/RAM/disk stats: pip install psutil)")
 
     print(_separator("Dependencies"))
-    dotenv_status = "installed" if _DOTENV_AVAILABLE else (
-        "NOT installed – .env not loaded "
-        "(fix: pip install -r requirements.txt)"
+    dotenv_status = (
+        "installed"
+        if _DOTENV_AVAILABLE
+        else ("NOT installed – .env not loaded (fix: pip install -r requirements.txt)")
     )
     print(f"  python-dotenv : {dotenv_status}")
 
@@ -181,7 +182,7 @@ def cmd_info() -> None:
 def _check_groq() -> None:
     """Attempt a lightweight Groq API call and report the result."""
     try:
-        from groq import Groq  # noqa: PLC0415
+        from groq import Groq
 
         client = Groq(api_key=GROQ_API_KEY)
         # list_models is a lightweight call that doesn't consume tokens
@@ -190,7 +191,7 @@ def _check_groq() -> None:
         print(f"  Groq API     : reachable – sample models: {names}")
     except ImportError:
         print("  Groq API     : groq package not installed")
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         print(f"  Groq API     : ERROR – {exc}")
 
 
@@ -230,8 +231,8 @@ def _describe_device(path: str) -> None:
         st = os.stat(path)
         mode = stat.filemode(st.st_mode)
         try:
-            import grp  # noqa: PLC0415
-            import pwd  # noqa: PLC0415
+            import grp
+            import pwd
 
             owner = pwd.getpwuid(st.st_uid).pw_name
             group = grp.getgrgid(st.st_gid).gr_name
@@ -239,9 +240,7 @@ def _describe_device(path: str) -> None:
             owner = str(st.st_uid)
             group = str(st.st_gid)
 
-        current_user = (
-            os.environ.get("USER") or os.environ.get("USERNAME") or "unknown"
-        )
+        current_user = os.environ.get("USER") or os.environ.get("USERNAME") or "unknown"
         readable = os.access(path, os.R_OK | os.W_OK)
         rw_tag = "rw-ok" if readable else "NO rw access"
 
@@ -262,7 +261,7 @@ def _describe_device(path: str) -> None:
 
 async def cmd_listen(duration: float, *, debug: bool = False, watch_start: bool = False) -> None:
     """Connect to MeshCore and log all incoming events."""
-    from meshcore import EventType, MeshCore  # noqa: PLC0415
+    from meshcore import EventType, MeshCore
 
     print(_separator("MeshCore Event Listener"))
     print(f"  Serial port  : {SERIAL_PORT}")
@@ -277,7 +276,7 @@ async def cmd_listen(duration: float, *, debug: bool = False, watch_start: bool 
     log.info("Connecting to MeshCore at %s (baud %d)…", SERIAL_PORT, BAUD_RATE)
     try:
         mc = await MeshCore.create_serial(SERIAL_PORT, BAUD_RATE)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.error("Failed to connect: %s", exc)
         print(
             "\n  Could not open serial port. Possible causes:\n"
@@ -322,23 +321,18 @@ async def cmd_listen(duration: float, *, debug: bool = False, watch_start: bool 
                     if cmd and cmd[0] in _CMD_PREFIXES:
                         cmd = cmd[1:]
                     if cmd in _START_CMDS:
-                        print(
-                            "  ★★★ START COMMAND DETECTED ★★★  "
-                            f"(normalised: {cmd!r})"
-                        )
+                        print(f"  ★★★ START COMMAND DETECTED ★★★  (normalised: {cmd!r})")
             elif isinstance(payload, dict):
                 # For other dict payloads print a one-line summary.
                 summary_keys = [k for k in ("text", "name", "id", "type") if k in payload]
                 if summary_keys:
-                    summary = ", ".join(
-                        f"{k}={payload[k]!r}" for k in summary_keys
-                    )
+                    summary = ", ".join(f"{k}={payload[k]!r}" for k in summary_keys)
                     print(f"  ├─ {summary}")
 
             # In debug mode always print the full raw payload.
             if debug:
                 try:
-                    import json  # noqa: PLC0415
+                    import json
 
                     raw = json.dumps(payload, default=str, indent=4)
                 except (TypeError, ValueError):
@@ -386,7 +380,7 @@ async def cmd_listen(duration: float, *, debug: bool = False, watch_start: bool 
 
 async def cmd_send_test(pubkey_prefix: str, text: str) -> None:
     """Connect to MeshCore and send a single test message."""
-    from meshcore import MeshCore  # noqa: PLC0415
+    from meshcore import MeshCore
 
     print(_separator("Send Test Message"))
     print(f"  Serial port    : {SERIAL_PORT}")
@@ -398,7 +392,7 @@ async def cmd_send_test(pubkey_prefix: str, text: str) -> None:
     log.info("Connecting to MeshCore at %s (baud %d)…", SERIAL_PORT, BAUD_RATE)
     try:
         mc = await MeshCore.create_serial(SERIAL_PORT, BAUD_RATE)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.error("Failed to connect: %s", exc)
         return
 
@@ -410,7 +404,7 @@ async def cmd_send_test(pubkey_prefix: str, text: str) -> None:
     try:
         await mc.commands.send_msg(pubkey_prefix, text)
         log.info("Message sent successfully to %s.", pubkey_prefix)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.error("Failed to send message: %s", exc)
     finally:
         await mc.disconnect()

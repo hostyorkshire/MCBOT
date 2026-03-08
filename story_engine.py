@@ -175,20 +175,69 @@ GENRES: dict[str, dict[str, str]] = {
 # ---------------------------------------------------------------------------
 
 # Keywords that indicate a high-risk choice (worth 2 doom points).
-_HIGH_RISK_KEYWORDS: frozenset[str] = frozenset({
-    "attack", "fight", "charge", "confront", "challenge", "assault",
-    "rush", "ambush", "storm", "battle", "shoot", "stab", "kill",
-    "steal", "grab", "snatch", "gamble", "risk", "dare", "reckless",
-    "sacrifice", "detonate", "explode", "dive", "leap", "jump",
-})
+_HIGH_RISK_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "attack",
+        "fight",
+        "charge",
+        "confront",
+        "challenge",
+        "assault",
+        "rush",
+        "ambush",
+        "storm",
+        "battle",
+        "shoot",
+        "stab",
+        "kill",
+        "steal",
+        "grab",
+        "snatch",
+        "gamble",
+        "risk",
+        "dare",
+        "reckless",
+        "sacrifice",
+        "detonate",
+        "explode",
+        "dive",
+        "leap",
+        "jump",
+    }
+)
 
 # Keywords that indicate a low-risk (safe) choice (worth 0 doom points).
-_LOW_RISK_KEYWORDS: frozenset[str] = frozenset({
-    "hide", "sneak", "run", "flee", "retreat", "avoid", "evade",
-    "wait", "watch", "observe", "listen", "rest", "sleep", "heal",
-    "tend", "help", "assist", "negotiate", "talk", "ask", "plead",
-    "beg", "surrender", "calm", "soothe", "careful", "cautious",
-})
+_LOW_RISK_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "hide",
+        "sneak",
+        "run",
+        "flee",
+        "retreat",
+        "avoid",
+        "evade",
+        "wait",
+        "watch",
+        "observe",
+        "listen",
+        "rest",
+        "sleep",
+        "heal",
+        "tend",
+        "help",
+        "assist",
+        "negotiate",
+        "talk",
+        "ask",
+        "plead",
+        "beg",
+        "surrender",
+        "calm",
+        "soothe",
+        "careful",
+        "cautious",
+    }
+)
 
 
 def classify_choice(choice_text: str) -> int:
@@ -251,7 +300,7 @@ class Session:
         if len(self.history) > self.max_history:
             # Always keep the first message (the story-start prompt) so the
             # model keeps context, then trim the oldest subsequent entries.
-            self.history = self.history[:1] + self.history[-(self.max_history - 1):]
+            self.history = self.history[:1] + self.history[-(self.max_history - 1) :]
 
     def get_messages(self) -> list[dict[str, str]]:
         """Return a shallow copy of the message history."""
@@ -298,9 +347,7 @@ class StoryEngine:
     # Story actions
     # ------------------------------------------------------------------
 
-    async def start_story(
-        self, user_key: str, user_name: str, genre: str = DEFAULT_GENRE
-    ) -> str:
+    async def start_story(self, user_key: str, user_name: str, genre: str = DEFAULT_GENRE) -> str:
         """Begin a fresh adventure for *user_key* and return the opening text.
 
         A new :class:`Session` is always created, replacing any existing one.
@@ -363,8 +410,7 @@ class StoryEngine:
             minutes = remainder // 60
             when = f"{hours}h {minutes}m" if hours > 0 else f"{minutes}m"
             return (
-                f"The path is sealed by ancient magic. "
-                f"Return in {when} to continue your journey."
+                f"The path is sealed by ancient magic. Return in {when} to continue your journey."
             )
 
         # Gate expired – clear it before advancing.
@@ -379,8 +425,7 @@ class StoryEngine:
         session.doom += baseline_gain + risk_gain
 
         log.debug(
-            "Pacing: user=%s chapter=%d scene=%d doom=%d "
-            "(baseline=%d risk=%d)",
+            "Pacing: user=%s chapter=%d scene=%d doom=%d (baseline=%d risk=%d)",
             user_key,
             session.chapter,
             session.scene_in_chapter,
@@ -408,9 +453,7 @@ class StoryEngine:
             # Hard stop: max chapters exceeded → forced finale.
             if session.chapter >= MAX_CHAPTERS:
                 session.add_message("user", f"I choose: {choice_text}.")
-                reply = await self._call_llm(
-                    session, system_prompt=_PERIL_FINALE_SYSTEM
-                )
+                reply = await self._call_llm(session, system_prompt=_PERIL_FINALE_SYSTEM)
                 session.add_message("assistant", reply)
                 session.finished = True
                 log.info(
@@ -430,8 +473,7 @@ class StoryEngine:
             session.scene_in_chapter = 0
             session.continue_after_ts = now + CHAPTER_COOLDOWN
             log.info(
-                "Chapter %d complete for %s – cliffhanger sent, "
-                "gate set until %.0f",
+                "Chapter %d complete for %s – cliffhanger sent, gate set until %.0f",
                 completed_chapter,
                 user_key,
                 session.continue_after_ts,
@@ -448,9 +490,7 @@ class StoryEngine:
     # Internal LLM call
     # ------------------------------------------------------------------
 
-    async def _call_llm(
-        self, session: Session, *, system_prompt: str | None = None
-    ) -> str:
+    async def _call_llm(self, session: Session, *, system_prompt: str | None = None) -> str:
         """Call the Groq API and return the assistant's response text.
 
         Args:
@@ -461,8 +501,9 @@ class StoryEngine:
         """
         sp = system_prompt if system_prompt is not None else _SYSTEM_PROMPT
         messages: list[dict[str, str]] = [
-            {"role": "system", "content": sp}
-        ] + session.get_messages()
+            {"role": "system", "content": sp},
+            *session.get_messages(),
+        ]
 
         try:
             response = await self._client.chat.completions.create(
@@ -473,7 +514,7 @@ class StoryEngine:
             )
             content = response.choices[0].message.content
             return _format_reply(content.strip()) if content else ""
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             exc_str = str(exc)
             if "model_decommissioned" in exc_str or (
                 hasattr(exc, "code") and getattr(exc, "code", None) == "model_decommissioned"

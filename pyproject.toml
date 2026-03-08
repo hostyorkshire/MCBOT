@@ -1,0 +1,28 @@
+[tool.ruff]
+# Target Python 3.10+ (Raspberry Pi OS Bookworm ships 3.11).
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+# Use a sensible subset: pyflakes (F), pycodestyle (E/W), isort (I),
+# plus a few extras that catch real bugs.
+select = ["E", "F", "W", "I", "UP", "B", "C4", "PIE", "SIM", "RUF"]
+ignore = [
+    "E501",   # line-too-long – handled by the formatter
+    "B008",   # do-not-perform-function-call-in-default-argument
+    "SIM108", # ternary-operator – not always more readable
+    "RUF001", # ambiguous-unicode-character-string – intentional en-dashes in prose
+    "RUF002", # ambiguous-unicode-character-docstring – intentional en-dashes in docstrings
+    "RUF003", # ambiguous-unicode-character-comment – intentional en-dashes in comments
+]
+
+[tool.ruff.format]
+# Consistent with Black-style defaults.
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]

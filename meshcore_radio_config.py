@@ -36,7 +36,6 @@ import stat
 import sys
 import time
 from dataclasses import dataclass
-from typing import Optional
 
 try:
     import serial  # type: ignore[import-untyped]
@@ -115,8 +114,8 @@ def describe_port(path: str) -> str:
         st = os.stat(path)
         mode = stat.filemode(st.st_mode)
         try:
-            import grp  # noqa: PLC0415
-            import pwd  # noqa: PLC0415
+            import grp
+            import pwd
 
             owner = pwd.getpwuid(st.st_uid).pw_name
             group = grp.getgrgid(st.st_gid).gr_name
@@ -225,19 +224,13 @@ class RadioSettings:
             else "  Frequency  : (not set)"
         )
         lines.append(
-            f"  Node name  : {self.name}"
-            if self.name is not None
-            else "  Node name  : (not set)"
+            f"  Node name  : {self.name}" if self.name is not None else "  Node name  : (not set)"
         )
         lines.append(
-            f"  Latitude   : {self.lat}"
-            if self.lat is not None
-            else "  Latitude   : (not set)"
+            f"  Latitude   : {self.lat}" if self.lat is not None else "  Latitude   : (not set)"
         )
         lines.append(
-            f"  Longitude  : {self.lon}"
-            if self.lon is not None
-            else "  Longitude  : (not set)"
+            f"  Longitude  : {self.lon}" if self.lon is not None else "  Longitude  : (not set)"
         )
         return lines
 
@@ -256,7 +249,7 @@ class RadioSettings:
 # ---------------------------------------------------------------------------
 
 
-def open_serial(port: str, baud: int = DEFAULT_BAUD_RATE) -> "serial.Serial":
+def open_serial(port: str, baud: int = DEFAULT_BAUD_RATE) -> serial.Serial:
     """Open *port* at *baud* and return the ``serial.Serial`` object.
 
     Raises ``serial.SerialException`` on failure (e.g. port busy or not found).
@@ -264,8 +257,7 @@ def open_serial(port: str, baud: int = DEFAULT_BAUD_RATE) -> "serial.Serial":
     """
     if not _SERIAL_AVAILABLE:
         raise ImportError(
-            "pyserial is not installed. "
-            "Run: .venv/bin/pip install -r requirements.txt"
+            "pyserial is not installed. Run: .venv/bin/pip install -r requirements.txt"
         )
 
     # Check access before attempting to open (gives a clearer error message).
@@ -280,7 +272,7 @@ def open_serial(port: str, baud: int = DEFAULT_BAUD_RATE) -> "serial.Serial":
     return serial.Serial(port, baud, timeout=READ_TIMEOUT)
 
 
-def send_command(ser: "serial.Serial", cmd: str) -> str:
+def send_command(ser: serial.Serial, cmd: str) -> str:
     """Send *cmd* over *ser* and return the response line(s)."""
     line = (cmd.strip() + "\n").encode()
     ser.write(line)
@@ -300,7 +292,7 @@ def send_command(ser: "serial.Serial", cmd: str) -> str:
     return "\n".join(response_lines)
 
 
-def apply_settings(ser: "serial.Serial", settings: RadioSettings) -> list[tuple[str, str]]:
+def apply_settings(ser: serial.Serial, settings: RadioSettings) -> list[tuple[str, str]]:
     """Send all pending settings to the radio.
 
     Returns a list of ``(command, response)`` tuples.
@@ -320,12 +312,12 @@ def _is_hex_string(s: str) -> bool:
     return bool(s) and all(c in "0123456789abcdefABCDEF" for c in s)
 
 
-def fetch_pubkey(ser: "serial.Serial") -> str:
+def fetch_pubkey(ser: serial.Serial) -> str:
     """Send ``get pubkey`` to the radio and return the raw response."""
     return send_command(ser, "get pubkey")
 
 
-def parse_pubkey_from_response(response: str) -> Optional[str]:
+def parse_pubkey_from_response(response: str) -> str | None:
     """Extract the hex public key from a ``get pubkey`` response.
 
     Handles response formats such as:
@@ -356,7 +348,7 @@ def parse_pubkey_from_response(response: str) -> Optional[str]:
     return None
 
 
-def _print_pubkey(ser: "serial.Serial") -> None:
+def _print_pubkey(ser: serial.Serial) -> None:
     """Fetch the radio public key and print it to stdout."""
     resp = fetch_pubkey(ser)
     key = parse_pubkey_from_response(resp)
@@ -505,7 +497,7 @@ def _menu_set_lon(settings: RadioSettings) -> None:
     print(f"  ✓ Longitude set to {lon} (pending apply).")
 
 
-def _menu_apply(ser: "serial.Serial", settings: RadioSettings, reboot: bool = False) -> None:
+def _menu_apply(ser: serial.Serial, settings: RadioSettings, reboot: bool = False) -> None:
     """Apply pending settings (and optionally reboot)."""
     cmds = settings.to_commands()
     if not cmds and not reboot:
@@ -528,7 +520,7 @@ def _menu_apply(ser: "serial.Serial", settings: RadioSettings, reboot: bool = Fa
         print("  ✓ Settings applied.  Use option 6 to apply AND reboot.")
 
 
-def _menu_shell(ser: "serial.Serial") -> None:
+def _menu_shell(ser: serial.Serial) -> None:
     """Drop into a raw serial shell for manual command entry."""
     print(_separator("Manual Serial Shell"))
     print("  Type MeshCore CLI commands and press Enter.  Type 'exit' to return.")
@@ -562,7 +554,7 @@ def run_interactive_menu(port: str, baud: int = DEFAULT_BAUD_RATE) -> None:
     except PermissionError as exc:
         print(f"\n  ✗ Permission denied: {exc}", file=sys.stderr)
         sys.exit(1)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         print(
             f"\n  ✗ Could not open {port}: {exc}\n"
             "  Possible causes:\n"
@@ -683,9 +675,7 @@ def run_non_interactive(args: argparse.Namespace) -> None:
 
     cmds = settings.to_commands()
     if not cmds and not args.reboot:
-        print(
-            "  Nothing to do. Provide at least one of: --freq, --name, --lat, --lon, --reboot"
-        )
+        print("  Nothing to do. Provide at least one of: --freq, --name, --lat, --lon, --reboot")
         sys.exit(0)
 
     port = args.port
@@ -696,7 +686,7 @@ def run_non_interactive(args: argparse.Namespace) -> None:
     except PermissionError as exc:
         print(f"\n  ✗ {exc}", file=sys.stderr)
         sys.exit(1)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         print(f"\n  ✗ Could not open {port}: {exc}", file=sys.stderr)
         sys.exit(1)
 
@@ -731,7 +721,7 @@ def run_shell_mode(args: argparse.Namespace) -> None:
     except PermissionError as exc:
         print(f"\n  ✗ {exc}", file=sys.stderr)
         sys.exit(1)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         print(f"\n  ✗ Could not open {args.port}: {exc}", file=sys.stderr)
         sys.exit(1)
 
@@ -823,10 +813,7 @@ def main() -> None:
         return
 
     # Non-interactive mode: any setting flag was provided.
-    has_setting = any(
-        getattr(args, key) is not None
-        for key in ("freq", "name", "lat", "lon")
-    )
+    has_setting = any(getattr(args, key) is not None for key in ("freq", "name", "lat", "lon"))
     if has_setting or args.reboot:
         if not args.port:
             print(

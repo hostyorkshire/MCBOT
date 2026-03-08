@@ -16,13 +16,14 @@ from story_engine import (
     classify_choice,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
-def _make_mock_groq(reply: str = "You stand at a crossroads.\n1. Go left\n2. Go right\n3. Wait") -> MagicMock:
+def _make_mock_groq(
+    reply: str = "You stand at a crossroads.\n1. Go left\n2. Go right\n3. Wait",
+) -> MagicMock:
     """Return a MagicMock that mimics the AsyncGroq client."""
     mock_choice = MagicMock()
     mock_choice.message.content = reply
@@ -158,14 +159,10 @@ class TestStoryEngineStory:
 
     @pytest.mark.asyncio
     async def test_api_error_returns_fallback_message(self, engine: StoryEngine):
-        engine._client.chat.completions.create = AsyncMock(
-            side_effect=RuntimeError("timeout")
-        )
+        engine._client.chat.completions.create = AsyncMock(side_effect=RuntimeError("timeout"))
         await engine.start_story("u1", "Frank")
         # Re-inject mock with exception for the advance call
-        engine._client.chat.completions.create = AsyncMock(
-            side_effect=RuntimeError("timeout")
-        )
+        engine._client.chat.completions.create = AsyncMock(side_effect=RuntimeError("timeout"))
         result = await engine.advance_story("u1", "1")
         assert "API error" in result or "error" in result.lower()
 
