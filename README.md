@@ -42,8 +42,13 @@ MCBOT/
 ├── requirements-dev.txt           # Dev/test dependencies (includes psutil)
 ├── .env.example                   # Configuration template
 ├── setup.sh                       # Interactive setup wizard (.env generator + systemd installer)
+├── dashboard.sh                   # Convenience wrapper – start the web dashboard (created by setup.sh)
 ├── mcbot.service                  # Systemd unit file template (installed by setup.sh)
 ├── pytest.ini                     # Test configuration
+├── dashboard/                     # Web dashboard (Flask)
+│   ├── app.py
+│   ├── requirements.txt           # dashboard-specific deps (flask)
+│   └── …
 └── tests/
     ├── test_cyoa_bot.py
     ├── test_story_engine.py
@@ -119,6 +124,8 @@ The wizard will:
 - Install all Python dependencies into that venv:
   - `requirements.txt` – `meshcore`, `groq`, `python-dotenv`, `pyserial`
   - `requirements-dev.txt` – `pytest`, `pytest-asyncio`, `psutil`
+  - `dashboard/requirements.txt` – `flask`
+- Create `dashboard.sh` in the project root for easy dashboard startup.
 - Prompt for each configuration value and write `.env`.
 - Optionally write `/etc/systemd/system/mcbot.service` with the correct paths
   and user, then run `systemctl daemon-reload` and
@@ -303,8 +310,41 @@ When you need to replace your Groq API key (e.g. it was accidentally exposed):
 | `pytest` | `>=8.0.0` | tests |
 | `pytest-asyncio` | `>=0.24.0` | tests |
 | `psutil` | `>=5.9.0` | `mcbot_monitor.py` |
+| `flask` | `>=3.0.0` | `dashboard/app.py` |
 
 `setup.sh` installs all of the above automatically into `.venv/`.
+
+---
+
+## Web Dashboard
+
+A lightweight Flask web dashboard lives in the `dashboard/` directory.  After
+running `setup.sh`, its dependencies (`flask`) are already installed in the
+shared `.venv` and a convenience wrapper script `dashboard.sh` is created at
+the project root.
+
+### Starting the dashboard
+
+```bash
+./dashboard.sh
+```
+
+Then open **http://localhost:5000** in your browser.
+
+The script activates the `.venv` virtual environment automatically, so you do
+not need to run `source .venv/bin/activate` beforehand.
+
+### Starting the bot and dashboard together
+
+Open two terminals (or use `tmux`/`screen`):
+
+```bash
+# Terminal 1 – bot
+source .venv/bin/activate && python cyoa_bot.py
+
+# Terminal 2 – dashboard
+./dashboard.sh
+```
 
 ---
 
