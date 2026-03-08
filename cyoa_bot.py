@@ -679,7 +679,7 @@ class BotHandler:
             await asyncio.sleep(self.chunk_delay)
         if choices:
             if choices.startswith(("1. ", "1) ")):
-                choices = choices + "\n\nOr say what you want. Say anything...."
+                choices = choices + "\n\nOr tell me what to do."
             await self._send(destination, choices)
 
     def _cancel_pending(self, pubkey_prefix: str) -> None:
