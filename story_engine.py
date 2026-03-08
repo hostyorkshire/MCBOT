@@ -3,12 +3,24 @@
 Manages per-user adventure sessions and calls the Groq cloud LLM API to
 generate story text and choices.  Designed to be lightweight enough to run
 on a Raspberry Pi Zero 2W.
+
+Invisible pacing / doom system
+-------------------------------
+Every call to :meth:`StoryEngine.advance_story` accumulates *doom* for the
+active session.  When doom reaches :data:`DOOM_MAX` the story ends in a peril
+finale.  Every :data:`SCENES_PER_CHAPTER` scenes (without doom triggering) the
+chapter ends with an in-world cliffhanger and the user must wait
+:data:`CHAPTER_COOLDOWN` seconds (24 h) before continuing.  After
+:data:`MAX_CHAPTERS` chapters the story is force-ended in peril.
+
+None of these counters are ever shown to the user.
 """
 
 from __future__ import annotations
 
 import logging
 import re
+import time
 from typing import Any
 
 from groq import AsyncGroq
@@ -16,38 +28,9 @@ from groq import AsyncGroq
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Genre registry – ordered so numbering matches the ``genres`` command output.
-# ---------------------------------------------------------------------------
-
-GENRES: dict[str, dict[str, str]] = {
-    "wasteland": {
-        "name": "Post-Apoc Sci-Fi Survival",
-        "desc": "post-apoc sci-fi survival",
-    },
-    "cozy": {
-        "name": "Cozy Fantasy",
-        "desc": "low stakes, puzzly, whimsical",
-    },
-    "horror": {
-        "name": "Horror",
-        "desc": "lost signals, things following you, unreliable comms",
-    },
-    "mil": {
-        "name": "Military / Espionage",
-        "desc": "missions, intel, moral tradeoffs",
-    },
-    "comedy": {
-        "name": "Comedy",
-        "desc": "absurd outcomes, fast resets",
-    },
-}
-
-DEFAULT_GENRE: str = "wasteland"
-
-# ---------------------------------------------------------------------------
+ main
 # System prompt sent with every request.  It primes the model to produce
 # short, numbered-choice output that fits within LoRa packet constraints.
-# ---------------------------------------------------------------------------
 _SYSTEM_PROMPT = (
     "You are a narrator for a text-based 'Create Your Own Adventure' (CYOA) "
     "story delivered over a LoRa mesh radio network.  STRICT RULES:\n"
@@ -62,6 +45,32 @@ _SYSTEM_PROMPT = (
     "1. Restart\n"
     "2. New adventure\n"
     "3. Quit"
+)
+
+#: System prompt used when doom reaches :data:`DOOM_MAX` or MAX_CHAPTERS is hit.
+_PERIL_FINALE_SYSTEM: str = (
+    "You are a narrator for a text-based 'Create Your Own Adventure' (CYOA) "
+    "story delivered over a LoRa mesh radio network.  STRICT RULES:\n"
+    "1. Keep EVERY response under 220 characters total.\n"
+    "2. Write a vivid, dramatic scene where the adventurer faces deadly peril "
+    "and meets their doom.  The ending must feel earned and final.\n"
+    "3. End with '[END]' on its own line, then offer exactly these 3 options:\n"
+    "1. Start over\n"
+    "2. New adventure\n"
+    "3. Quit\n"
+    "4. Do NOT mention doom counters, chapter numbers, or scene numbers."
+)
+
+#: System prompt used when a chapter ends without doom triggering.
+_CLIFFHANGER_SYSTEM: str = (
+    "You are a narrator for a text-based 'Create Your Own Adventure' (CYOA) "
+    "story delivered over a LoRa mesh radio network.  STRICT RULES:\n"
+    "1. Keep EVERY response under 220 characters total.\n"
+    "2. Write a vivid in-world cliffhanger that leaves the adventurer in "
+    "nail-biting suspense.  Use an in-world reason (nightfall, a magic seal, "
+    "exhaustion, etc.) to explain why they must rest and continue tomorrow.\n"
+    "3. Do NOT include numbered choices — the journey resumes tomorrow.\n"
+    "4. Do NOT mention doom counters, chapter numbers, or scene numbers."
 )
 
 # ---------------------------------------------------------------------------
@@ -123,6 +132,13 @@ class Session:
         user_name: Human-readable name used in prompts.
         history: Ordered list of ``{"role": ..., "content": ...}`` dicts.
         max_history: Maximum number of messages to retain (saves RAM).
+        chapter: Current chapter number (starts at 1).
+        scene_in_chapter: Number of scenes completed in the current chapter.
+        doom: Accumulated doom score; triggers a peril finale at
+            :data:`DOOM_MAX`.
+        continue_after_ts: Epoch-seconds timestamp after which the user may
+            continue (``None`` means no gate is active).
+        finished: ``True`` once the story has reached a peril finale.
     """
 
     def __init__(self, user_key: str, user_name: str, max_history: int = 10) -> None:
@@ -130,6 +146,12 @@ class Session:
         self.user_name = user_name
         self.max_history = max_history
         self.history: list[dict[str, str]] = []
+        # Pacing state (invisible to the user)
+        self.chapter: int = 1
+        self.scene_in_chapter: int = 0
+        self.doom: int = 0
+        self.continue_after_ts: float | None = None
+        self.finished: bool = False
 
     def add_message(self, role: str, content: str) -> None:
         """Append a message and prune history to *max_history* entries."""
@@ -221,12 +243,110 @@ class StoryEngine:
 
         *choice* can be ``1``, ``2``, ``3`` (int or str), or free text.
         Returns a fallback message if no active session exists.
+
+        Pacing control flow (all invisible to the user):
+
+        1. If the story is already finished, return a prompt to start a new one.
+        2. If a 24 h continuation gate is active, return an in-world wait message.
+        3. Otherwise increment ``scene_in_chapter`` and accumulate doom
+           (``chapter + classify_choice(choice)``).
+        4. ``doom >= DOOM_MAX`` → peril finale; mark ``finished``.
+        5. ``scene_in_chapter >= SCENES_PER_CHAPTER`` → chapter cliffhanger,
+           advance chapter, set ``continue_after_ts``.
+           If ``chapter >= MAX_CHAPTERS`` → forced peril finale instead.
         """
         session = self._sessions.get(user_key)
         if not session:
             return "No active story. Send 'start' to begin your adventure."
 
+        # Story already finished.
+        if session.finished:
+            return "Your tale has ended. Send 'start' to begin a new adventure."
+
+        # Continuation gate: enforce 24 h cooldown between chapters.
+        now = time.time()
+        if session.continue_after_ts is not None and now < session.continue_after_ts:
+            remaining = int(session.continue_after_ts - now)
+            hours, remainder = divmod(remaining, 3600)
+            minutes = remainder // 60
+            when = f"{hours}h {minutes}m" if hours > 0 else f"{minutes}m"
+            return (
+                f"The path is sealed by ancient magic. "
+                f"Return in {when} to continue your journey."
+            )
+
+        # Gate expired – clear it before advancing.
+        session.continue_after_ts = None
+
         choice_text = str(choice).strip()
+
+        # Accumulate doom.
+        session.scene_in_chapter += 1
+        baseline_gain = session.chapter
+        risk_gain = classify_choice(choice_text)
+        session.doom += baseline_gain + risk_gain
+
+        log.debug(
+            "Pacing: user=%s chapter=%d scene=%d doom=%d "
+            "(baseline=%d risk=%d)",
+            user_key,
+            session.chapter,
+            session.scene_in_chapter,
+            session.doom,
+            baseline_gain,
+            risk_gain,
+        )
+
+        # --- Early peril finale ---
+        if session.doom >= DOOM_MAX:
+            session.add_message("user", f"I choose: {choice_text}.")
+            reply = await self._call_llm(session, system_prompt=_PERIL_FINALE_SYSTEM)
+            session.add_message("assistant", reply)
+            session.finished = True
+            log.info(
+                "Peril finale for %s (doom=%d >= DOOM_MAX=%d)",
+                user_key,
+                session.doom,
+                DOOM_MAX,
+            )
+            return reply
+
+        # --- Chapter end ---
+        if session.scene_in_chapter >= SCENES_PER_CHAPTER:
+            # Hard stop: max chapters exceeded → forced finale.
+            if session.chapter >= MAX_CHAPTERS:
+                session.add_message("user", f"I choose: {choice_text}.")
+                reply = await self._call_llm(
+                    session, system_prompt=_PERIL_FINALE_SYSTEM
+                )
+                session.add_message("assistant", reply)
+                session.finished = True
+                log.info(
+                    "Forced peril finale for %s (chapter=%d >= MAX_CHAPTERS=%d)",
+                    user_key,
+                    session.chapter,
+                    MAX_CHAPTERS,
+                )
+                return reply
+
+            # Normal chapter end: cliffhanger + gate.
+            session.add_message("user", f"I choose: {choice_text}.")
+            reply = await self._call_llm(session, system_prompt=_CLIFFHANGER_SYSTEM)
+            session.add_message("assistant", reply)
+            completed_chapter = session.chapter
+            session.chapter += 1
+            session.scene_in_chapter = 0
+            session.continue_after_ts = now + CHAPTER_COOLDOWN
+            log.info(
+                "Chapter %d complete for %s – cliffhanger sent, "
+                "gate set until %.0f",
+                completed_chapter,
+                user_key,
+                session.continue_after_ts,
+            )
+            return reply
+
+        # --- Normal scene advance ---
         session.add_message("user", f"I choose option {choice_text}.")
         reply = await self._call_llm(session)
         session.add_message("assistant", reply)
@@ -236,10 +356,20 @@ class StoryEngine:
     # Internal LLM call
     # ------------------------------------------------------------------
 
-    async def _call_llm(self, session: Session) -> str:
-        """Call the Groq API and return the assistant's response text."""
+    async def _call_llm(
+        self, session: Session, *, system_prompt: str | None = None
+    ) -> str:
+        """Call the Groq API and return the assistant's response text.
+
+        Args:
+            session: The active :class:`Session` whose history is sent.
+            system_prompt: Override the default :data:`_SYSTEM_PROMPT`.  Used
+                by the pacing system to inject peril-finale or cliffhanger
+                instructions without exposing them to the user.
+        """
+        sp = system_prompt if system_prompt is not None else _SYSTEM_PROMPT
         messages: list[dict[str, str]] = [
-            {"role": "system", "content": _SYSTEM_PROMPT}
+            {"role": "system", "content": sp}
         ] + session.get_messages()
 
         try:
