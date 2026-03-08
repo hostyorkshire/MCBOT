@@ -375,3 +375,47 @@ class TestChapterBoundary:
         await eng.advance_story("u1", "1")  # trigger boundary
         session = eng._sessions["u1"]
         assert session.continue_after_ts is None
+
+
+# ---------------------------------------------------------------------------
+# last_reply / read-aloud tests
+# ---------------------------------------------------------------------------
+
+
+class TestLastReply:
+    def test_last_reply_defaults_empty(self):
+        s = Session("u1", "Alice", max_history=5)
+        assert s.last_reply == ""
+
+    @pytest.mark.asyncio
+    async def test_start_story_sets_last_reply(self, engine: StoryEngine):
+        expected = "Dark cave ahead.\n1. Enter\n2. Run\n3. Shout"
+        engine._client = _make_mock_groq(expected)
+        await engine.start_story("u1", "Bob")
+        assert engine._sessions["u1"].last_reply == expected
+
+    @pytest.mark.asyncio
+    async def test_advance_story_updates_last_reply(self, engine: StoryEngine):
+        engine._client = _make_mock_groq("Opening scene.\n1. A\n2. B\n3. C")
+        await engine.start_story("u1", "Carol")
+        second = "Next scene.\n1. X\n2. Y\n3. Z"
+        engine._client = _make_mock_groq(second)
+        await engine.advance_story("u1", "1")
+        assert engine._sessions["u1"].last_reply == second
+
+    @pytest.mark.asyncio
+    async def test_get_sessions_info_includes_last_reply(self, engine: StoryEngine):
+        expected = "You find a key.\n1. Take it\n2. Leave\n3. Look around"
+        engine._client = _make_mock_groq(expected)
+        await engine.start_story("u1", "Dave")
+        sessions = engine.get_sessions_info()
+        assert len(sessions) == 1
+        assert sessions[0]["last_reply"] == expected
+
+    @pytest.mark.asyncio
+    async def test_get_sessions_info_last_reply_empty_before_start(self, engine: StoryEngine):
+        # Manually insert a fresh session (no LLM call yet).
+        engine._sessions["u2"] = Session("u2", "Eve", max_history=5)
+        sessions = engine.get_sessions_info()
+        entry = next(s for s in sessions if s["user_key"] == "u2")
+        assert entry["last_reply"] == ""

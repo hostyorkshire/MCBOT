@@ -22,10 +22,18 @@
       ⚠️ Could not reach the API – is the dashboard server running?
     </div>
 
+    <!-- ── TTS not-supported notice (hidden by default) ─────────── -->
+    <div class="error-banner" id="tts-unsupported-banner" role="status">
+      🔇 Your browser does not support text-to-speech. Try Chrome or Edge for read-aloud.
+    </div>
+
     <!-- ── Refresh controls ────────────────────────────────────── -->
     <div class="refresh-bar">
       <span class="last-updated" id="last-updated">Fetching…</span>
-      <button class="btn-refresh" id="btn-refresh" onclick="fetchAll()">⟳ Refresh</button>
+      <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+        <button class="btn-tts-stop" id="btn-tts-stop" onclick="_ttsStop()" aria-label="Stop reading aloud">⏹ Stop</button>
+        <button class="btn-refresh" id="btn-refresh" onclick="fetchAll()">⟳ Refresh</button>
+      </div>
     </div>
 
     <!-- ── Bot status card ─────────────────────────────────────── -->
@@ -59,6 +67,20 @@
     <!-- ── Active stories card ─────────────────────────────────── -->
     <section class="card" aria-labelledby="stories-heading">
       <h2 id="stories-heading">📖 Active Stories</h2>
+
+      <!-- ── TTS voice controls ──────────────────────────────── -->
+      <div class="tts-controls" id="tts-controls" aria-label="Text-to-speech settings">
+        <label class="tts-control-label" for="tts-rate">Speed</label>
+        <input class="tts-slider" type="range" id="tts-rate" min="0.5" max="2" step="0.1" value="0.95"
+               aria-label="Speech rate">
+        <span class="tts-slider-val" id="tts-rate-val">0.95×</span>
+
+        <label class="tts-control-label" for="tts-pitch">Pitch</label>
+        <input class="tts-slider" type="range" id="tts-pitch" min="0.5" max="2" step="0.1" value="1.0"
+               aria-label="Speech pitch">
+        <span class="tts-slider-val" id="tts-pitch-val">1.0×</span>
+      </div>
+
       <div id="stories-container">
         <p class="empty-note" id="stories-empty">Loading…</p>
         <table class="stories-table" id="stories-table" style="display:none" aria-label="Active story sessions">
@@ -70,6 +92,7 @@
               <th>Scene</th>
               <th>State</th>
               <th>Started</th>
+              <th>Read Aloud</th>
             </tr>
           </thead>
           <tbody id="stories-tbody"></tbody>
@@ -92,6 +115,63 @@
     const STATUS_URL  = "{{ url_for('dashboard.api_status') }}";
     const STORIES_URL = "{{ url_for('dashboard.api_stories') }}";
     const AUTO_REFRESH_MS = 10_000;  // refresh every 10 s
+
+    // ── TTS state ──────────────────────────────────────────────────
+    const _ttsSupported = "speechSynthesis" in window;
+    let _ttsActiveBtn = null;  // the button currently speaking
+    // Story texts stored by session index – avoids embedding text in onclick attrs (XSS).
+    const _ttsTexts = [];
+
+    function _ttsRate()  { return parseFloat(document.getElementById("tts-rate").value); }
+    function _ttsPitch() { return parseFloat(document.getElementById("tts-pitch").value); }
+
+    function _ttsStop() {
+      if (_ttsSupported) window.speechSynthesis.cancel();
+      if (_ttsActiveBtn) {
+        _ttsActiveBtn.classList.remove("speaking");
+        _ttsActiveBtn.textContent = "🔊 Read";
+        _ttsActiveBtn = null;
+      }
+      document.getElementById("btn-tts-stop").classList.remove("visible");
+    }
+
+    function _ttsSpeak(idx, btn) {
+      if (!_ttsSupported) {
+        document.getElementById("tts-unsupported-banner").classList.add("visible");
+        return;
+      }
+      const text = _ttsTexts[idx];
+      if (!text) return;
+      // If this button is already speaking, stop it.
+      if (_ttsActiveBtn === btn) { _ttsStop(); return; }
+      // Stop any previous utterance.
+      _ttsStop();
+
+      const utter = new SpeechSynthesisUtterance(text);
+      utter.rate  = _ttsRate();
+      utter.pitch = _ttsPitch();
+      utter.onend = () => {
+        btn.classList.remove("speaking");
+        btn.textContent = "🔊 Read";
+        _ttsActiveBtn = null;
+        document.getElementById("btn-tts-stop").classList.remove("visible");
+      };
+      utter.onerror = utter.onend;
+
+      btn.classList.add("speaking");
+      btn.textContent = "🔊 Speaking…";
+      _ttsActiveBtn = btn;
+      document.getElementById("btn-tts-stop").classList.add("visible");
+      window.speechSynthesis.speak(utter);
+    }
+
+    // ── Slider labels ──────────────────────────────────────────────
+    document.getElementById("tts-rate").addEventListener("input", function () {
+      document.getElementById("tts-rate-val").textContent = parseFloat(this.value).toFixed(2) + "×";
+    });
+    document.getElementById("tts-pitch").addEventListener("input", function () {
+      document.getElementById("tts-pitch-val").textContent = parseFloat(this.value).toFixed(2) + "×";
+    });
 
     // ── Helpers ────────────────────────────────────────────────────
     function fmtDate(ts) {
@@ -140,6 +220,8 @@
       const empty  = document.getElementById("stories-empty");
 
       tbody.innerHTML = "";
+      // Clear the text lookup so indices stay fresh after each render.
+      _ttsTexts.length = 0;
 
       if (!sessions || sessions.length === 0) {
         table.style.display = "none";
@@ -151,8 +233,22 @@
       table.style.display = "";
       empty.style.display = "none";
 
-      sessions.forEach(s => {
-        const state = sessionState(s);
+      sessions.forEach((s, idx) => {
+        const state   = sessionState(s);
+        const hasText = s.last_reply && s.last_reply.trim().length > 0;
+
+        // Store text by index; button uses the index to look it up (avoids XSS).
+        _ttsTexts[idx] = hasText ? s.last_reply : "";
+
+        const ttsCell = hasText
+          ? `<button class="btn-tts"
+               data-tts-idx="${idx}"
+               aria-label="Read last story segment aloud for ${escHtml(s.user_name)}"
+               onclick="_ttsSpeak(${idx}, this)">
+               🔊 Read
+             </button>`
+          : `<span style="color:#999;font-size:0.8rem">No text yet</span>`;
+
         const tr = document.createElement("tr");
         tr.innerHTML = `
           <td data-label="User">${escHtml(s.user_name)}</td>
@@ -161,6 +257,7 @@
           <td data-label="Scene">${s.scene_in_chapter}</td>
           <td data-label="State">${statusPill(state)}</td>
           <td data-label="Started">${fmtDate(s.started_at)}</td>
+          <td data-label="Read Aloud">${ttsCell}</td>
         `;
         tbody.appendChild(tr);
       });

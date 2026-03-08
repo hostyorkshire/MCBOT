@@ -252,6 +252,84 @@ header .tagline {
 }
 .error-banner.visible { display: block; }
 
+/* ── TTS voice controls bar ─────────────────────────────────────────── */
+.tts-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.9rem;
+  margin-bottom: 1.1rem;
+  padding: 0.65rem 0.9rem;
+  background: white;
+  border: 3px solid var(--ink);
+  border-radius: 14px;
+  box-shadow: 3px 3px 0 var(--ink);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+.tts-control-label {
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--blob-purple);
+}
+.tts-slider {
+  width: 110px;
+  accent-color: var(--blob-purple);
+  cursor: pointer;
+}
+.tts-slider-val {
+  min-width: 3rem;
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+/* ── TTS / Read-aloud button ────────────────────────────────────────── */
+.btn-tts {
+  background: var(--blob-purple);
+  color: white;
+  border: 3px solid var(--ink);
+  border-radius: 50px;
+  padding: 0.25rem 0.8rem;
+  font-size: 0.78rem;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 2px 2px 0 var(--ink);
+  font-family: inherit;
+  transition: transform 80ms, box-shadow 80ms;
+  white-space: nowrap;
+}
+.btn-tts:hover { background: var(--blob-pink); }
+.btn-tts:active {
+  transform: translate(2px, 2px);
+  box-shadow: 0 0 0 var(--ink);
+}
+.btn-tts.speaking {
+  background: var(--blob-teal);
+  color: var(--ink);
+  animation: tts-pulse 1.2s ease-in-out infinite;
+}
+@keyframes tts-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.65; }
+}
+.btn-tts-stop {
+  background: var(--blob-pink);
+  color: white;
+  border: 3px solid var(--ink);
+  border-radius: 50px;
+  padding: 0.25rem 0.8rem;
+  font-size: 0.78rem;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 2px 2px 0 var(--ink);
+  font-family: inherit;
+  display: none;
+}
+.btn-tts-stop.visible { display: inline-block; }
+
 /* ── Footer ─────────────────────────────────────────────────────────── */
 footer {
   text-align: center;

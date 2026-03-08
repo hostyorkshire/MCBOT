@@ -293,6 +293,8 @@ class Session:
         finished: ``True`` once the story has reached a peril finale.
         genre: Genre ID for this session (e.g. ``"wasteland"``).
         started_at: Unix timestamp when the session was created.
+        last_reply: The most recent story text sent to the user (empty string
+            before the first reply).
     """
 
     def __init__(self, user_key: str, user_name: str, max_history: int = 10) -> None:
@@ -310,6 +312,7 @@ class Session:
         # Dashboard metadata
         self.genre: str = DEFAULT_GENRE
         self.started_at: float = time.time()
+        self.last_reply: str = ""
 
     def add_message(self, role: str, content: str) -> None:
         """Append a message and prune history to *max_history* entries."""
@@ -380,6 +383,7 @@ class StoryEngine:
                     "finished": s.finished,
                     "awaiting_chapter_choice": s.awaiting_chapter_choice,
                     "started_at": s.started_at,
+                    "last_reply": s.last_reply,
                 }
             )
         return result
@@ -411,6 +415,7 @@ class StoryEngine:
         session.add_message("user", prompt)
         reply = await self._call_llm(session)
         session.add_message("assistant", reply)
+        session.last_reply = reply
         log.info(
             "Started new story for %s (%s) in genre '%s'",
             user_name,
@@ -468,6 +473,7 @@ class StoryEngine:
                 session.add_message("user", "Continue the adventure.")
                 reply = await self._call_llm(session)
                 session.add_message("assistant", reply)
+                session.last_reply = reply
                 log.info(
                     "Chapter resumed for %s (chapter=%d)",
                     user_key,
@@ -516,6 +522,7 @@ class StoryEngine:
             session.add_message("user", f"I choose: {choice_text}.")
             reply = await self._call_llm(session, system_prompt=_PERIL_FINALE_SYSTEM)
             session.add_message("assistant", reply)
+            session.last_reply = reply
             session.finished = True
             log.info(
                 "Peril finale for %s (doom=%d >= DOOM_MAX=%d)",
@@ -532,6 +539,7 @@ class StoryEngine:
                 session.add_message("user", f"I choose: {choice_text}.")
                 reply = await self._call_llm(session, system_prompt=_PERIL_FINALE_SYSTEM)
                 session.add_message("assistant", reply)
+                session.last_reply = reply
                 session.finished = True
                 log.info(
                     "Forced peril finale for %s (chapter=%d >= MAX_CHAPTERS=%d)",
@@ -546,6 +554,7 @@ class StoryEngine:
             reply = await self._call_llm(session, system_prompt=_CLIFFHANGER_SYSTEM)
             reply = f"{reply}{_CHAPTER_CHOICE_SUFFIX}"
             session.add_message("assistant", reply)
+            session.last_reply = reply
             completed_chapter = session.chapter
             session.chapter += 1
             session.scene_in_chapter = 0
@@ -561,6 +570,7 @@ class StoryEngine:
         session.add_message("user", f"I choose option {choice_text}.")
         reply = await self._call_llm(session)
         session.add_message("assistant", reply)
+        session.last_reply = reply
         return reply
 
     # ------------------------------------------------------------------
