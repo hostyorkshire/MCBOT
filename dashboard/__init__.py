@@ -1,0 +1,1 @@
+"""MCBOT local dashboard package."""

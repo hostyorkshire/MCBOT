@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MCBOT Dashboard</title>
+  <link rel="stylesheet" href="{{ url_for('dashboard.static', filename='style.css') }}" />
+</head>
+<body>
+
+  <div class="page-wrapper">
+
+    <!-- ── Header ──────────────────────────────────────────────── -->
+    <header>
+      <p class="badge">📡 Local Admin</p>
+      <h1>MCBOT <span>Dashboard</span></h1>
+      <p class="tagline">Real-time status for your MeshCore StoryBoT 🎮</p>
+    </header>
+
+    <!-- ── Error banner (shown when fetch fails) ───────────────── -->
+    <div class="error-banner" id="error-banner" role="alert">
+      ⚠️ Could not reach the API – is the dashboard server running?
+    </div>
+
+    <!-- ── Refresh controls ────────────────────────────────────── -->
+    <div class="refresh-bar">
+      <span class="last-updated" id="last-updated">Fetching…</span>
+      <button class="btn-refresh" id="btn-refresh" onclick="fetchAll()">⟳ Refresh</button>
+    </div>
+
+    <!-- ── Bot status card ─────────────────────────────────────── -->
+    <section class="card" aria-labelledby="status-heading">
+      <h2 id="status-heading">🤖 Bot Status</h2>
+      <div class="status-grid">
+
+        <div class="stat-box">
+          <div class="stat-label">Status</div>
+          <div class="stat-value" id="stat-status">—</div>
+        </div>
+
+        <div class="stat-box">
+          <div class="stat-label">Uptime</div>
+          <div class="stat-value" id="stat-uptime">—</div>
+        </div>
+
+        <div class="stat-box">
+          <div class="stat-label">Active Sessions</div>
+          <div class="stat-value" id="stat-sessions">—</div>
+        </div>
+
+        <div class="stat-box">
+          <div class="stat-label">Errors</div>
+          <div class="stat-value" id="stat-errors">—</div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ── Active stories card ─────────────────────────────────── -->
+    <section class="card" aria-labelledby="stories-heading">
+      <h2 id="stories-heading">📖 Active Stories</h2>
+      <div id="stories-container">
+        <p class="empty-note" id="stories-empty">Loading…</p>
+        <table class="stories-table" id="stories-table" style="display:none" aria-label="Active story sessions">
+          <thead>
+            <tr>
+              <th>User</th>
+              <th>Genre</th>
+              <th>Chapter</th>
+              <th>Scene</th>
+              <th>State</th>
+              <th>Started</th>
+            </tr>
+          </thead>
+          <tbody id="stories-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── Footer ──────────────────────────────────────────────── -->
+    <footer>
+      MCBOT – MeshCore CYOA Story Bot &nbsp;·&nbsp;
+      <a href="https://github.com/hostyorkshire/MCBOT" target="_blank" rel="noopener">
+        github.com/hostyorkshire/MCBOT
+      </a>
+    </footer>
+
+  </div><!-- /.page-wrapper -->
+
+  <script>
+    // ── Constants ──────────────────────────────────────────────────
+    const STATUS_URL  = "{{ url_for('dashboard.api_status') }}";
+    const STORIES_URL = "{{ url_for('dashboard.api_stories') }}";
+    const AUTO_REFRESH_MS = 10_000;  // refresh every 10 s
+
+    // ── Helpers ────────────────────────────────────────────────────
+    function fmtDate(ts) {
+      if (!ts) return "—";
+      const d = new Date(ts * 1000);
+      return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    }
+
+    function statusPill(status) {
+      const cls = ["running","idle","offline","stopped"].includes(status) ? status : "unknown";
+      return `<span class="status-pill ${cls}">${status}</span>`;
+    }
+
+    function sessionState(s) {
+      if (s.finished) return "finished";
+      if (s.awaiting_chapter_choice) return "chapter-end";
+      return "active";
+    }
+
+    // ── Fetch status ───────────────────────────────────────────────
+    async function fetchStatus() {
+      const res = await fetch(STATUS_URL);
+      if (!res.ok) throw new Error(`status ${res.status}`);
+      return res.json();
+    }
+
+    // ── Fetch stories ──────────────────────────────────────────────
+    async function fetchStories() {
+      const res = await fetch(STORIES_URL);
+      if (!res.ok) throw new Error(`status ${res.status}`);
+      return res.json();
+    }
+
+    // ── Render status ──────────────────────────────────────────────
+    function renderStatus(data, sessionCount) {
+      document.getElementById("stat-status").innerHTML  = statusPill(data.status);
+      document.getElementById("stat-uptime").textContent = data.uptime_human || "—";
+      document.getElementById("stat-sessions").textContent = sessionCount;
+      document.getElementById("stat-errors").textContent  = data.error_count ?? "—";
+    }
+
+    // ── Render stories table ───────────────────────────────────────
+    function renderStories(sessions) {
+      const tbody  = document.getElementById("stories-tbody");
+      const table  = document.getElementById("stories-table");
+      const empty  = document.getElementById("stories-empty");
+
+      tbody.innerHTML = "";
+
+      if (!sessions || sessions.length === 0) {
+        table.style.display = "none";
+        empty.style.display = "block";
+        empty.textContent   = "No active stories right now.";
+        return;
+      }
+
+      table.style.display = "";
+      empty.style.display = "none";
+
+      sessions.forEach(s => {
+        const state = sessionState(s);
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td data-label="User">${escHtml(s.user_name)}</td>
+          <td data-label="Genre"><span class="genre-tag">${escHtml(s.genre_name || s.genre)}</span></td>
+          <td data-label="Chapter">${s.chapter}</td>
+          <td data-label="Scene">${s.scene_in_chapter}</td>
+          <td data-label="State">${statusPill(state)}</td>
+          <td data-label="Started">${fmtDate(s.started_at)}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    // ── Sanitise HTML ──────────────────────────────────────────────
+    function escHtml(str) {
+      return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    // ── Main refresh ───────────────────────────────────────────────
+    async function fetchAll() {
+      const banner = document.getElementById("error-banner");
+      try {
+        const [status, stories] = await Promise.all([fetchStatus(), fetchStories()]);
+        renderStatus(status, stories.length);
+        renderStories(stories);
+        banner.classList.remove("visible");
+        document.getElementById("last-updated").textContent =
+          "Updated " + new Date().toLocaleTimeString();
+      } catch (err) {
+        banner.classList.add("visible");
+        document.getElementById("last-updated").textContent = "Update failed";
+        console.error("Dashboard fetch error:", err);
+      }
+    }
+
+    // ── Auto-refresh ───────────────────────────────────────────────
+    fetchAll();
+    setInterval(fetchAll, AUTO_REFRESH_MS);
+  </script>
+
+</body>
+</html>

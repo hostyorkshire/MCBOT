@@ -33,6 +33,20 @@ from story_engine import DEFAULT_GENRE, GENRES, StoryEngine
 from utils import chunk_message
 
 # ---------------------------------------------------------------------------
+# Optional dashboard state writer – imported lazily so the bot starts even
+# if the dashboard package is not installed.
+# ---------------------------------------------------------------------------
+try:
+    from dashboard.state import write_state as _write_dashboard_state
+
+    _DASHBOARD_ENABLED = True
+except ImportError:  # pragma: no cover – optional dependency
+    _DASHBOARD_ENABLED = False
+
+    def _write_dashboard_state(_data: dict) -> None:  # type: ignore[misc]
+        """No-op fallback when the dashboard package is unavailable."""
+
+# ---------------------------------------------------------------------------
 # Bootstrap
 # ---------------------------------------------------------------------------
 load_dotenv()
@@ -905,6 +919,11 @@ async def main(argv: list[str] | None = None) -> None:
         max_history=MAX_HISTORY,
     )
 
+    # Dashboard: record start time and error count at module level so the
+    # periodic state writer can access them without closures over mutable vars.
+    _bot_start_time: float = time.time()
+    _bot_error_count: int = 0
+
     log.info("Connecting to MeshCore at %s (baud %d)…", serial_port, baud_rate)
     mc = await MeshCore.create_serial(serial_port, baud_rate)
     if mc is None:
@@ -924,6 +943,7 @@ async def main(argv: list[str] | None = None) -> None:
 
     async def handle_message(event) -> None:  # type: ignore[type-arg]
         """Process an incoming direct message event."""
+        nonlocal _bot_error_count
         payload = event.payload
         pubkey_prefix: str = payload.get("pubkey_prefix", "")
         text: str = payload.get("text", "").strip()
@@ -942,7 +962,11 @@ async def main(argv: list[str] | None = None) -> None:
         snippet = text[:80] + ("…" if len(text) > 80 else "")
         log.info("Message from %s (%s): %r", user_name, pubkey_prefix, snippet)
 
-        await handler.handle(pubkey_prefix, text, user_name)
+        try:
+            await handler.handle(pubkey_prefix, text, user_name)
+        except Exception:
+            _bot_error_count += 1
+            raise
 
     mc.subscribe(EventType.CONTACT_MSG_RECV, handle_message)
 
@@ -964,11 +988,45 @@ async def main(argv: list[str] | None = None) -> None:
     mc.subscribe(EventType.MESSAGES_WAITING, handle_messages_waiting)
     log.info("CYOA Bot is running. Waiting for messages…")
 
+    async def _dashboard_state_writer() -> None:
+        """Periodically write bot state to the dashboard state file."""
+        while True:
+            try:
+                _write_dashboard_state(
+                    {
+                        "status": "running",
+                        "start_time": _bot_start_time,
+                        "uptime": time.time() - _bot_start_time,
+                        "error_count": _bot_error_count,
+                        "sessions": story_engine.get_sessions_info(),
+                    }
+                )
+            except Exception as exc:
+                log.debug("Dashboard state write failed: %s", exc)
+            await asyncio.sleep(5)
+
+    # Keep a strong reference to background tasks to prevent garbage collection.
+    _background_tasks: set[asyncio.Task] = set()  # type: ignore[type-arg]
+
+    if _DASHBOARD_ENABLED:
+        _t = asyncio.ensure_future(_dashboard_state_writer())
+        _background_tasks.add(_t)
+        _t.add_done_callback(_background_tasks.discard)
+
     try:
         while True:
             await asyncio.sleep(1)
     except (KeyboardInterrupt, asyncio.CancelledError):
         log.info("Shutting down CYOA Bot…")
+        _write_dashboard_state(
+            {
+                "status": "stopped",
+                "start_time": _bot_start_time,
+                "uptime": time.time() - _bot_start_time,
+                "error_count": _bot_error_count,
+                "sessions": story_engine.get_sessions_info(),
+            }
+        )
     finally:
         await mc.disconnect()
         log.info("Disconnected.")

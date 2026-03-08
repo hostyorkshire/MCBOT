@@ -30,3 +30,7 @@ htmlcov/
 
 # macOS
 .DS_Store
+
+# Dashboard runtime state file (written by the bot; not for version control)
+dashboard/bot_state.json
+dashboard/bot_state.json.tmp

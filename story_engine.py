@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from typing import Any
 
 from groq import AsyncGroq
@@ -290,6 +291,8 @@ class Session:
             user to choose Continue (1), Pause (2), or End (3) at a chapter
             boundary.
         finished: ``True`` once the story has reached a peril finale.
+        genre: Genre ID for this session (e.g. ``"wasteland"``).
+        started_at: Unix timestamp when the session was created.
     """
 
     def __init__(self, user_key: str, user_name: str, max_history: int = 10) -> None:
@@ -304,6 +307,9 @@ class Session:
         self.continue_after_ts: float | None = None
         self.awaiting_chapter_choice: bool = False
         self.finished: bool = False
+        # Dashboard metadata
+        self.genre: str = DEFAULT_GENRE
+        self.started_at: float = time.time()
 
     def add_message(self, role: str, content: str) -> None:
         """Append a message and prune history to *max_history* entries."""
@@ -354,6 +360,30 @@ class StoryEngine:
         self._sessions.pop(user_key, None)
         log.info("Cleared session for %s", user_key)
 
+    def get_sessions_info(self) -> list[dict]:
+        """Return a snapshot of all active sessions for dashboard display.
+
+        Each entry is a plain dict with keys suitable for JSON serialisation.
+        """
+        result = []
+        for s in self._sessions.values():
+            genre_info = GENRES.get(s.genre, GENRES[DEFAULT_GENRE])
+            result.append(
+                {
+                    "user_key": s.user_key,
+                    "user_name": s.user_name,
+                    "genre": s.genre,
+                    "genre_name": genre_info["name"],
+                    "chapter": s.chapter,
+                    "scene_in_chapter": s.scene_in_chapter,
+                    "doom": s.doom,
+                    "finished": s.finished,
+                    "awaiting_chapter_choice": s.awaiting_chapter_choice,
+                    "started_at": s.started_at,
+                }
+            )
+        return result
+
     # ------------------------------------------------------------------
     # Story actions
     # ------------------------------------------------------------------
@@ -369,6 +399,7 @@ class StoryEngine:
             genre: Genre ID from :data:`GENRES` (default: ``"wasteland"``).
         """
         session = Session(user_key, user_name, self._max_history)
+        session.genre = genre
         self._sessions[user_key] = session
 
         genre_info = GENRES.get(genre, GENRES[DEFAULT_GENRE])
