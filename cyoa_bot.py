@@ -847,14 +847,6 @@ class BotHandler:
 
         # --- unknown command, no active session ---
         else:
-            if not _is_invoked(text, command):
-                log.debug(
-                    "Non-invoked message %r from %s (%s) – ignoring",
-                    command,
-                    user_name,
-                    pubkey_prefix,
-                )
-                return
             now = time.monotonic()
             last = self._last_help_hint.get(pubkey_prefix, float("-inf"))
             if now - last < _HELP_HINT_COOLDOWN:
@@ -864,13 +856,20 @@ class BotHandler:
                     pubkey_prefix,
                 )
                 return
+            if not _is_invoked(text, command):
+                log.info(
+                    "First contact from %s (%s) – sending help hint",
+                    user_name,
+                    pubkey_prefix,
+                )
+            else:
+                log.info(
+                    "Unknown command %r from %s (%s) – sending help",
+                    command,
+                    user_name,
+                    pubkey_prefix,
+                )
             self._last_help_hint[pubkey_prefix] = now
-            log.info(
-                "Unknown command %r from %s (%s) – sending help",
-                command,
-                user_name,
-                pubkey_prefix,
-            )
             await self._send(pubkey_prefix, HELP_TEXT)
             return
 
