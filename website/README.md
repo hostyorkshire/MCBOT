@@ -41,7 +41,6 @@ A `qr.png` is now included in this folder by default. It encodes the URL
 `http://meshtastic.local/#/connect?add=true` so mobile users can also tap a
 link directly when they cannot scan the QR code.
 
-The page will show a styled placeholder if `qr.png` is not present.
 To replace it with your own QR code:
 
 1. **Generate your QR code** from the MeshCore app or companion firmware:
@@ -50,7 +49,7 @@ To replace it with your own QR code:
 2. **Rename the image** to exactly `qr.png`.
 3. **Upload `qr.png`** to the same directory as `index.html`
    (e.g. `public_html/` or `public_html/mcbot/`).
-4. Refresh the page – the real QR code will appear in place of the placeholder.
+4. Refresh the page – the real QR code will appear.
 
 > The QR code should be scanned with the **MeshCore mobile app**
 > (`Contacts → Add Contact → Scan QR`).  Mobile users who cannot scan the

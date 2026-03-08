@@ -129,33 +129,6 @@
       border-radius: 16px;
       box-shadow: 5px 5px 0 var(--ink);
       background: white;
-      /* shown when qr.png loads successfully */
-    }
-
-    /* Placeholder rendered when qr.png is missing */
-    .qr-placeholder {
-      display: none; /* shown via JS */
-      width: 220px;
-      height: 220px;
-      border: var(--outline);
-      border-radius: 16px;
-      box-shadow: 5px 5px 0 var(--ink);
-      background: white;
-      align-items: center;
-      justify-content: center;
-      flex-direction: column;
-      gap: 0.5rem;
-      padding: 1rem;
-    }
-    .qr-placeholder svg {
-      width: 140px;
-      height: 140px;
-    }
-    .qr-placeholder p {
-      font-size: 0.7rem;
-      font-weight: 700;
-      color: #888;
-      text-align: center;
     }
 
     /* ── Steps ──────────────────────────────────────────────────── */
@@ -294,7 +267,6 @@
 
       <!-- QR code area -->
       <div class="qr-wrapper" role="img" aria-label="QR code to add StoryBoT as a MeshCore contact">
-        <!-- Real QR loaded from qr.png -->
         <img
           id="qr-image"
           class="qr-img"
@@ -303,48 +275,6 @@
           width="220"
           height="220"
         />
-        <!-- Fallback placeholder shown when qr.png is absent -->
-        <div id="qr-placeholder" class="qr-placeholder" aria-hidden="true">
-          <!-- Minimal QR-style pattern as inline SVG -->
-          <svg viewBox="0 0 21 21" xmlns="http://www.w3.org/2000/svg"
-               shape-rendering="crispEdges" aria-hidden="true">
-            <rect width="21" height="21" fill="white"/>
-            <!-- Top-left finder -->
-            <rect x="1" y="1" width="7" height="7" fill="#1A0030"/>
-            <rect x="2" y="2" width="5" height="5" fill="white"/>
-            <rect x="3" y="3" width="3" height="3" fill="#1A0030"/>
-            <!-- Top-right finder -->
-            <rect x="13" y="1" width="7" height="7" fill="#1A0030"/>
-            <rect x="14" y="2" width="5" height="5" fill="white"/>
-            <rect x="15" y="3" width="3" height="3" fill="#1A0030"/>
-            <!-- Bottom-left finder -->
-            <rect x="1" y="13" width="7" height="7" fill="#1A0030"/>
-            <rect x="2" y="14" width="5" height="5" fill="white"/>
-            <rect x="3" y="15" width="3" height="3" fill="#1A0030"/>
-            <!-- Timing pattern -->
-            <rect x="8" y="6" width="1" height="1" fill="#1A0030"/>
-            <rect x="10" y="6" width="1" height="1" fill="#1A0030"/>
-            <rect x="12" y="6" width="1" height="1" fill="#1A0030"/>
-            <rect x="6" y="8" width="1" height="1" fill="#1A0030"/>
-            <rect x="6" y="10" width="1" height="1" fill="#1A0030"/>
-            <rect x="6" y="12" width="1" height="1" fill="#1A0030"/>
-            <!-- Data dots -->
-            <rect x="9"  y="9"  width="1" height="1" fill="#FF6B00"/>
-            <rect x="11" y="9"  width="1" height="1" fill="#FF6B00"/>
-            <rect x="13" y="9"  width="1" height="1" fill="#FF6B00"/>
-            <rect x="9"  y="11" width="1" height="1" fill="#FF6B00"/>
-            <rect x="11" y="11" width="1" height="1" fill="#FF6B00"/>
-            <rect x="13" y="11" width="1" height="1" fill="#FF6B00"/>
-            <rect x="9"  y="13" width="1" height="1" fill="#FF6B00"/>
-            <rect x="11" y="13" width="1" height="1" fill="#FF6B00"/>
-            <rect x="15" y="9"  width="1" height="1" fill="#FF6B00"/>
-            <rect x="15" y="11" width="1" height="1" fill="#FF6B00"/>
-            <rect x="15" y="13" width="1" height="1" fill="#FF6B00"/>
-            <rect x="9"  y="15" width="1" height="1" fill="#FF6B00"/>
-            <rect x="11" y="15" width="1" height="1" fill="#FF6B00"/>
-          </svg>
-          <p>Place your qr.png<br>here (see README)</p>
-        </div>
       </div>
 
       <!-- How-to steps -->
@@ -378,33 +308,6 @@
 
     </article>
   </main>
-
-  <script>
-    // If qr.png fails to load, swap in the SVG placeholder.
-    (function () {
-      var img = document.getElementById("qr-image");
-      var placeholder = document.getElementById("qr-placeholder");
-
-      function showPlaceholder() {
-        img.style.display = "none";
-        placeholder.style.display = "flex";
-        placeholder.removeAttribute("aria-hidden");
-        // Update the wrapper's accessible label
-        var wrapper = placeholder.closest("[role='img']");
-        if (wrapper) {
-          wrapper.setAttribute("aria-label",
-            "QR code placeholder – place qr.png next to index.html to show the real QR code");
-        }
-      }
-
-      img.addEventListener("error", showPlaceholder);
-
-      // Also handle the case where the browser cached a broken image
-      if (img.complete && img.naturalWidth === 0) {
-        showPlaceholder();
-      }
-    }());
-  </script>
 
 </body>
 </html>
