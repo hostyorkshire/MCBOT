@@ -63,8 +63,6 @@ HELP_TEXT: str = (
     "- genres \u2014 list genres\n"
     "- start / new / begin <genre name or number>\n"
     "- restart / reset \u2014 reset\n"
-    "\n"
-    "(If prompted: 1/2/3 or text. 180s confirm.)"
 )
 
 # Compact genre list sent in response to the ``genres`` command.
