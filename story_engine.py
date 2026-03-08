@@ -309,6 +309,7 @@ class Session:
         self.finished: bool = False
         # Dashboard metadata
         self.genre: str = DEFAULT_GENRE
+        self.custom_topic: str | None = None
         self.started_at: float = time.time()
 
     def add_message(self, role: str, content: str) -> None:
@@ -374,6 +375,7 @@ class StoryEngine:
                     "user_name": s.user_name,
                     "genre": s.genre,
                     "genre_name": genre_info["name"],
+                    "custom_topic": s.custom_topic,
                     "chapter": s.chapter,
                     "scene_in_chapter": s.scene_in_chapter,
                     "doom": s.doom,
@@ -416,6 +418,39 @@ class StoryEngine:
             user_name,
             user_key,
             genre,
+        )
+        return reply
+
+    async def start_custom_story(self, user_key: str, user_name: str, topic: str) -> str:
+        """Begin a custom adventure based on a user-supplied *topic*.
+
+        A new :class:`Session` is always created, replacing any existing one.
+        The story theme is driven entirely by the topic text rather than a
+        preset genre.
+
+        Args:
+            user_key: Unique identifier for the user (pubkey_prefix).
+            user_name: Human-readable name used in the opening prompt.
+            topic: Free-text description of the desired story theme, e.g.
+                ``"pirates in space"`` or ``"a mystery in a haunted library"``.
+        """
+        session = Session(user_key, user_name, self._max_history)
+        session.genre = "custom"
+        session.custom_topic = topic
+        self._sessions[user_key] = session
+
+        prompt = (
+            f"Begin a new CYOA adventure for {user_name} about: {topic}. "
+            "Opening scene + 3 numbered choices. Under 220 chars total."
+        )
+        session.add_message("user", prompt)
+        reply = await self._call_llm(session)
+        session.add_message("assistant", reply)
+        log.info(
+            "Started custom story for %s (%s) on topic '%s'",
+            user_name,
+            user_key,
+            topic,
         )
         return reply
 

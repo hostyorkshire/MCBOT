@@ -152,6 +152,12 @@ class TestCommandSets:
     def test_choices_are_digits_1_to_3(self, bot):
         assert {"1", "2", "3"} == bot._CHOICES
 
+    def test_story_cmds_contains_story(self, bot):
+        assert "story" in bot._STORY_CMDS
+
+    def test_story_cmds_contains_tell(self, bot):
+        assert "tell" in bot._STORY_CMDS
+
 
 # ---------------------------------------------------------------------------
 # Tests: end-to-end normalization → command dispatch
@@ -644,6 +650,7 @@ EXPECTED_HELP_TEXT = (
     "- help / ? \u2014 show this message\n"
     "- genres \u2014 list genres\n"
     "- start / new / begin <genre name or number>\n"
+    "- story <topic> \u2014 make a story\n"
     "- restart / reset \u2014 reset\n"
 )
 
@@ -672,6 +679,7 @@ def _make_handler(bot, confirm_timeout: float = 0.05):
     story_engine.has_session = MagicMock(return_value=False)
     story_engine.clear_session = MagicMock()
     story_engine.start_story = AsyncMock(return_value="Once upon a time…")
+    story_engine.start_custom_story = AsyncMock(return_value="A custom tale begins…")
     story_engine.advance_story = AsyncMock(return_value="Story continues…")
 
     handler = bot.BotHandler(
@@ -787,6 +795,107 @@ class TestBotHandlerStart:
         # The original task should be cancelled or done.
         assert first_task is not None
         assert first_task.cancelled() or first_task.done()
+
+
+# ---------------------------------------------------------------------------
+# Tests: BotHandler – story command (custom topic)
+# ---------------------------------------------------------------------------
+
+
+class TestBotHandlerStory:
+    """story / tell command triggers onboarding then calls start_custom_story."""
+
+    @pytest.mark.asyncio
+    async def test_story_with_topic_triggers_onboarding(self, bot):
+        handler, mc, _ = _make_handler(bot)
+        await handler.handle("ff66", "story pirates in space", "Fay")
+        assert len(_sent_texts(mc)) == 3
+        assert handler.is_pending_confirm("ff66")
+
+    @pytest.mark.asyncio
+    async def test_tell_with_topic_triggers_onboarding(self, bot):
+        handler, mc, _ = _make_handler(bot)
+        await handler.handle("ff66", "tell haunted mansion", "Fay")
+        assert len(_sent_texts(mc)) == 3
+        assert handler.is_pending_confirm("ff66")
+
+    @pytest.mark.asyncio
+    async def test_story_without_topic_sends_prompt(self, bot):
+        handler, mc, _ = _make_handler(bot)
+        await handler.handle("ff66", "story", "Fay")
+        texts = _sent_texts(mc)
+        assert len(texts) == 1
+        assert "story" in texts[0].lower()
+        assert not handler.is_pending_confirm("ff66")
+
+    @pytest.mark.asyncio
+    async def test_story_yes_calls_start_custom_story(self, bot):
+        handler, mc, story_engine = _make_handler(bot)
+        await handler.handle("ff66", "story robots vs ninjas", "Fay")
+        mc.commands.send_msg.reset_mock()
+        await handler.handle("ff66", "yes", "Fay")
+        story_engine.start_custom_story.assert_called_once_with(
+            "ff66", "Fay", "robots vs ninjas"
+        )
+        story_engine.start_story.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_story_yes_sends_story_text(self, bot):
+        handler, mc, _ = _make_handler(bot)
+        await handler.handle("ff66", "story underwater adventure", "Fay")
+        mc.commands.send_msg.reset_mock()
+        await handler.handle("ff66", "yes", "Fay")
+        assert "custom tale" in _sent_texts(mc)[0]
+
+    @pytest.mark.asyncio
+    async def test_story_yes_clears_pending(self, bot):
+        handler, _, _ = _make_handler(bot)
+        await handler.handle("ff66", "story space opera", "Fay")
+        await handler.handle("ff66", "yes", "Fay")
+        assert not handler.is_pending_confirm("ff66")
+
+    @pytest.mark.asyncio
+    async def test_story_no_sends_no_msg(self, bot):
+        handler, mc, story_engine = _make_handler(bot)
+        await handler.handle("ff66", "story dragons", "Fay")
+        mc.commands.send_msg.reset_mock()
+        await handler.handle("ff66", "no", "Fay")
+        assert bot.NO_MSG in _sent_texts(mc)
+        story_engine.start_custom_story.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_story_about_prefix_stripped(self, bot):
+        """'story about X' should store topic as 'X' (not 'about X')."""
+        handler, _, story_engine = _make_handler(bot)
+        await handler.handle("ff66", "story about pirates", "Fay")
+        await handler.handle("ff66", "yes", "Fay")
+        story_engine.start_custom_story.assert_called_once_with("ff66", "Fay", "pirates")
+
+    @pytest.mark.asyncio
+    async def test_tell_me_a_story_about_prefix_stripped(self, bot):
+        """'tell me a story about X' should store topic as 'X'."""
+        handler, _, story_engine = _make_handler(bot)
+        await handler.handle("ff66", "tell me a story about dragons", "Fay")
+        await handler.handle("ff66", "yes", "Fay")
+        story_engine.start_custom_story.assert_called_once_with("ff66", "Fay", "dragons")
+
+    @pytest.mark.asyncio
+    async def test_story_topic_starting_with_me_not_stripped(self, bot):
+        """Topics that start with 'me' as part of a word must not be mangled."""
+        handler, _, story_engine = _make_handler(bot)
+        await handler.handle("ff66", "story medieval knights", "Fay")
+        await handler.handle("ff66", "yes", "Fay")
+        story_engine.start_custom_story.assert_called_once_with(
+            "ff66", "Fay", "medieval knights"
+        )
+
+    @pytest.mark.asyncio
+    async def test_story_topic_stored_separately_from_genre(self, bot):
+        """Confirming a custom story should not leave a genre in pending_genres."""
+        handler, _, story_engine = _make_handler(bot)
+        await handler.handle("ff66", "story haunted house", "Fay")
+        assert "ff66" not in handler._pending_genres
+        assert handler._pending_topics.get("ff66") == "haunted house"
 
 
 # ---------------------------------------------------------------------------

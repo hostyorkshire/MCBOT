@@ -183,6 +183,55 @@ class TestStoryEngineStory:
 
 
 # ---------------------------------------------------------------------------
+# StoryEngine – start_custom_story tests
+# ---------------------------------------------------------------------------
+
+
+class TestStartCustomStory:
+    @pytest.mark.asyncio
+    async def test_start_custom_story_creates_session(self, engine: StoryEngine):
+        await engine.start_custom_story("u1", "Alice", "pirates in space")
+        assert engine.has_session("u1")
+
+    @pytest.mark.asyncio
+    async def test_start_custom_story_sets_custom_genre(self, engine: StoryEngine):
+        await engine.start_custom_story("u1", "Alice", "robots vs ninjas")
+        assert engine._sessions["u1"].genre == "custom"
+
+    @pytest.mark.asyncio
+    async def test_start_custom_story_stores_topic(self, engine: StoryEngine):
+        await engine.start_custom_story("u1", "Alice", "haunted lighthouse")
+        assert engine._sessions["u1"].custom_topic == "haunted lighthouse"
+
+    @pytest.mark.asyncio
+    async def test_start_custom_story_returns_llm_reply(self, engine: StoryEngine):
+        expected = "A dark ship looms.\n1. Board it\n2. Flee\n3. Signal"
+        engine._client = _make_mock_groq(expected)
+        result = await engine.start_custom_story("u1", "Bob", "pirates")
+        assert result == expected
+
+    @pytest.mark.asyncio
+    async def test_start_custom_story_adds_topic_to_prompt(self, engine: StoryEngine):
+        """The opening LLM prompt must include the custom topic."""
+        await engine.start_custom_story("u1", "Carol", "time-travelling chefs")
+        first_message = engine._sessions["u1"].history[0]["content"]
+        assert "time-travelling chefs" in first_message
+
+    @pytest.mark.asyncio
+    async def test_start_custom_story_replaces_existing_session(self, engine: StoryEngine):
+        await engine.start_custom_story("u1", "Dave", "old topic")
+        old_session = engine._sessions["u1"]
+        await engine.start_custom_story("u1", "Dave", "new topic")
+        assert engine._sessions["u1"] is not old_session
+
+    @pytest.mark.asyncio
+    async def test_start_custom_story_session_can_be_advanced(self, engine: StoryEngine):
+        """After start_custom_story the session should accept advance_story calls."""
+        await engine.start_custom_story("u1", "Eve", "underwater adventure")
+        result = await engine.advance_story("u1", "1")
+        assert result  # non-empty reply
+
+
 # _format_reply unit tests
 # ---------------------------------------------------------------------------
 

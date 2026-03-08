@@ -77,6 +77,7 @@ HELP_TEXT: str = (
     "- help / ? \u2014 show this message\n"
     "- genres \u2014 list genres\n"
     "- start / new / begin <genre name or number>\n"
+    "- story <topic> \u2014 make a story\n"
     "- restart / reset \u2014 reset\n"
 )
 
@@ -107,6 +108,8 @@ _RESET_CMDS = {"restart", "reset"}
 _HELP_CMDS = {"help", "?"}
 # Commands that list available genres
 _GENRES_CMDS = {"genres"}
+# Commands that begin a custom story on a user-supplied topic
+_STORY_CMDS = {"story", "tell"}
 # Affirmative replies that confirm a start prompt
 _YES_CMDS = {"yes", "y", "ok", "okay", "sure", "yeah", "yep", "please", "go", "start"}
 # Negative replies that decline a start prompt
@@ -117,7 +120,7 @@ _CMD_PREFIXES = ("/", "!", "\\")
 
 # All command tokens that the bot recognises (used for invocation detection).
 _ALL_KNOWN_CMDS: frozenset[str] = frozenset(
-    _HELP_CMDS | _GENRES_CMDS | _START_CMDS | _RESET_CMDS | _CHOICES
+    _HELP_CMDS | _GENRES_CMDS | _START_CMDS | _RESET_CMDS | _STORY_CMDS | _CHOICES
 )
 
 # Minimum seconds between help-hint replies to the same idle user.
@@ -655,6 +658,8 @@ class BotHandler:
         self._pending_user_names: dict[str, str] = {}
         # pubkey_prefix → genre ID stored at confirmation start
         self._pending_genres: dict[str, str] = {}
+        # pubkey_prefix → custom story topic stored at confirmation start (None if genre-based)
+        self._pending_topics: dict[str, str] = {}
         # pubkey_prefixes whose message is currently being processed; guards
         # against double-dispatch when both CONTACT_MSG_RECV and
         # MESSAGES_WAITING fire for the same incoming message.
@@ -702,6 +707,7 @@ class BotHandler:
             task.cancel()
         self._pending_user_names.pop(pubkey_prefix, None)
         self._pending_genres.pop(pubkey_prefix, None)
+        self._pending_topics.pop(pubkey_prefix, None)
 
     async def _timeout_task(self, pubkey_prefix: str) -> None:
         """Sleep for :attr:`confirm_timeout` seconds, then send the timeout message."""
@@ -710,6 +716,7 @@ class BotHandler:
         self._pending_confirm.pop(pubkey_prefix, None)
         self._pending_user_names.pop(pubkey_prefix, None)
         self._pending_genres.pop(pubkey_prefix, None)
+        self._pending_topics.pop(pubkey_prefix, None)
         log.info("Confirmation timeout for %s – sending timeout message", pubkey_prefix)
         await self._send(pubkey_prefix, TIMEOUT_MSG)
 
@@ -718,20 +725,24 @@ class BotHandler:
         pubkey_prefix: str,
         user_name: str,
         genre: str = DEFAULT_GENRE,
+        topic: str | None = None,
     ) -> None:
         """Cancel any existing confirmation and begin the 3-message onboarding."""
         self._cancel_pending(pubkey_prefix)
         log.info(
-            "Starting onboarding for %s (%s) genre=%s – sending 3 messages",
+            "Starting onboarding for %s (%s) %s – sending 3 messages",
             user_name,
             pubkey_prefix,
-            genre,
+            f"topic='{topic}'" if topic is not None else f"genre={genre}",
         )
         await self._send(pubkey_prefix, ONBOARD_MSG_1)
         await self._send(pubkey_prefix, ONBOARD_MSG_2)
         await self._send(pubkey_prefix, ONBOARD_MSG_3)
         self._pending_user_names[pubkey_prefix] = user_name
-        self._pending_genres[pubkey_prefix] = genre
+        if topic is not None:
+            self._pending_topics[pubkey_prefix] = topic
+        else:
+            self._pending_genres[pubkey_prefix] = genre
         task = asyncio.create_task(self._timeout_task(pubkey_prefix))
         self._pending_confirm[pubkey_prefix] = task
 
@@ -819,11 +830,43 @@ class BotHandler:
             await self._start_onboarding(pubkey_prefix, user_name, genre)
             return
 
+        # --- custom story onboarding ---
+        if command in _STORY_CMDS:
+            # Strip common filler prefixes for natural phrases like
+            # "story about pirates" or "tell me a story about dragons".
+            # Check longest prefixes first so "me a story about" is consumed
+            # before the shorter sub-prefixes.
+            topic = arg
+            for _prefix in (
+                "me a story about ",
+                "me a story ",
+                "a story about ",
+                "a story ",
+                "about ",
+            ):
+                if topic.startswith(_prefix):
+                    topic = topic[len(_prefix):].strip()
+                    break
+            if not topic:
+                log.info(
+                    "Story command with no topic from %s (%s) – sending prompt",
+                    user_name,
+                    pubkey_prefix,
+                )
+                await self._send(
+                    pubkey_prefix,
+                    "What should the story be about? e.g. story pirates in space",
+                )
+                return
+            await self._start_onboarding(pubkey_prefix, user_name, topic=topic)
+            return
+
         # ------------------------------------------------------------------
         # If we're waiting for a yes/no confirmation, handle it now.
         # ------------------------------------------------------------------
         if self.is_pending_confirm(pubkey_prefix):
             stored_name = self._pending_user_names.get(pubkey_prefix, user_name)
+            stored_topic = self._pending_topics.get(pubkey_prefix)
             stored_genre = self._pending_genres.get(pubkey_prefix, DEFAULT_GENRE)
             self._cancel_pending(pubkey_prefix)
             if command in _YES_CMDS:
@@ -832,9 +875,14 @@ class BotHandler:
                     stored_name,
                     pubkey_prefix,
                 )
-                response = await self.story_engine.start_story(
-                    pubkey_prefix, stored_name, genre=stored_genre
-                )
+                if stored_topic is not None:
+                    response = await self.story_engine.start_custom_story(
+                        pubkey_prefix, stored_name, stored_topic
+                    )
+                else:
+                    response = await self.story_engine.start_story(
+                        pubkey_prefix, stored_name, genre=stored_genre
+                    )
                 await self._send_story(pubkey_prefix, response)
             else:
                 # Treat anything non-yes-ish (including no-ish or unknown) as a no.
