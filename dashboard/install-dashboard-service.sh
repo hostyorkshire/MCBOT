@@ -7,11 +7,11 @@
 #
 # The script auto-detects the repository root, virtual-environment Python, and
 # the non-root user to run the service as.  It then writes a correctly
-# populated unit file to /etc/systemd/system/mcbot-dashboard.service.
+# populated unit file to /etc/systemd/system/dashboard.service.
 #
 # To uninstall:
-#   sudo systemctl disable --now mcbot-dashboard.service
-#   sudo rm /etc/systemd/system/mcbot-dashboard.service
+#   sudo systemctl disable --now dashboard.service
+#   sudo rm /etc/systemd/system/dashboard.service
 #   sudo systemctl daemon-reload
 
 set -euo pipefail
@@ -34,7 +34,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # The repository root is one level above the dashboard/ directory.
 REPO_DIR="$(dirname "${SCRIPT_DIR}")"
 VENV_PYTHON="${REPO_DIR}/.venv/bin/python"
-SERVICE_DEST="/etc/systemd/system/mcbot-dashboard.service"
+SERVICE_DEST="/etc/systemd/system/dashboard.service"
 
 # Determine the non-root user to run the service as:
 #   1. $SUDO_USER – set when the script is invoked via sudo (most common case).
@@ -81,24 +81,25 @@ if ! "${VENV_PYTHON}" -c "import flask_socketio" 2>/dev/null; then
 fi
 
 # ---------------------------------------------------------------------------
-# Migrate away from the old service name (if still active)
+# Migrate away from the old service names (if still active)
 # ---------------------------------------------------------------------------
 
-if systemctl is-active --quiet dashboard-dashboard.service 2>/dev/null; then
-    echo "Stopping legacy dashboard-dashboard service before replacing it..."
-    systemctl stop dashboard-dashboard.service || true
-fi
-if systemctl is-enabled --quiet dashboard-dashboard.service 2>/dev/null; then
-    echo "Disabling legacy dashboard-dashboard service..."
-    systemctl disable dashboard-dashboard.service || true
-fi
-# Remove the old unit file so systemd won't complain about duplicate names.
-if [ -f /etc/systemd/system/dashboard-dashboard.service ]; then
-    rm -f /etc/systemd/system/dashboard-dashboard.service
-fi
+for _legacy_svc in dashboard-dashboard.service mcbot-dashboard.service; do
+    if systemctl is-active --quiet "${_legacy_svc}" 2>/dev/null; then
+        echo "Stopping legacy ${_legacy_svc} service before replacing it..."
+        systemctl stop "${_legacy_svc}" || true
+    fi
+    if systemctl is-enabled --quiet "${_legacy_svc}" 2>/dev/null; then
+        echo "Disabling legacy ${_legacy_svc} service..."
+        systemctl disable "${_legacy_svc}" || true
+    fi
+    if [ -f "/etc/systemd/system/${_legacy_svc}" ]; then
+        rm -f "/etc/systemd/system/${_legacy_svc}"
+    fi
+done
 
 # Stop the current service (if running) before replacing the unit file.
-systemctl stop mcbot-dashboard.service 2>/dev/null || true
+systemctl stop dashboard.service 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
 # Write the unit file with actual paths substituted in
@@ -134,14 +135,14 @@ UNIT
 
 chmod 644 "${SERVICE_DEST}"
 systemctl daemon-reload
-systemctl enable --now mcbot-dashboard.service
+systemctl enable --now dashboard.service
 
 echo ""
-echo "mcbot-dashboard.service installed and enabled successfully!"
-echo "  Status:  sudo systemctl status mcbot-dashboard"
-echo "  Logs:    sudo journalctl -u mcbot-dashboard -f"
-echo "  Stop:    sudo systemctl stop mcbot-dashboard"
-echo "  Disable: sudo systemctl disable mcbot-dashboard"
+echo "dashboard.service installed and enabled successfully!"
+echo "  Status:  sudo systemctl status dashboard"
+echo "  Logs:    sudo journalctl -u dashboard -f"
+echo "  Stop:    sudo systemctl stop dashboard"
+echo "  Disable: sudo systemctl disable dashboard"
 echo ""
 echo "The dashboard will now start automatically on every reboot."
 echo "Open http://localhost:5000/dashboard/ in your browser."

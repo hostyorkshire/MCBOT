@@ -49,7 +49,6 @@ MCBOT/
 ├── dashboard/                     # Web dashboard (Flask)
 │   ├── app.py
 │   ├── requirements.txt           # dashboard-specific deps (flask, flask-socketio)
-│   ├── mcbot-dashboard.service    # Systemd unit file template (dashboard, for manual install reference)
 │   └── …
 └── tests/
     ├── test_cyoa_bot.py
