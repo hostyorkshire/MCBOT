@@ -328,6 +328,17 @@ the project root.
 
 ### Starting the dashboard
 
+**Option A – zero-setup helper (works right after cloning, no `setup.sh` needed):**
+
+```bash
+bash dashboard/start-dashboard.sh
+```
+
+This script installs the required packages automatically and starts the
+dashboard using the correct runner (`python -m dashboard.app`).
+
+**Option B – after running `setup.sh` (`.venv` already set up):**
+
 ```bash
 ./dashboard.sh
 ```
@@ -336,8 +347,10 @@ Then open **http://localhost:5000/dashboard/** in your browser, or use the
 host machine's IP address (e.g. **http://192.168.1.10:5000/dashboard/**) to
 access it from another device on the same network.
 
-The script activates the `.venv` virtual environment automatically, so you do
-not need to run `source .venv/bin/activate` beforehand.
+> ⛔ **Do NOT use `flask run`.**  The Werkzeug server does not support
+> Socket.IO, so real-time live updates will not work.  Always use
+> `bash dashboard/start-dashboard.sh`, `./dashboard.sh`, or
+> `python -m dashboard.app`.
 
 > ⚠️ **Security warning:** the dashboard binds to `0.0.0.0`, making it
 > reachable by *any* device on the same network.  Do not expose this port to
@@ -352,6 +365,8 @@ Open two terminals (or use `tmux`/`screen`):
 source .venv/bin/activate && python cyoa_bot.py
 
 # Terminal 2 – dashboard
+bash dashboard/start-dashboard.sh
+# or, if .venv is already set up by setup.sh:
 ./dashboard.sh
 ```
 
