@@ -17,6 +17,8 @@
 Description=MCBOT Web Dashboard
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=120
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -24,8 +26,8 @@ Type=simple
 User=__USER__
 WorkingDirectory=__WORKDIR__
 ExecStart=__WORKDIR__/.venv/bin/python -m dashboard.app
-Restart=on-failure
-RestartSec=10
+Restart=always
+RestartSec=15
 Environment=PYTHONUNBUFFERED=1
 StandardOutput=journal
 StandardError=journal
