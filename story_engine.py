@@ -727,8 +727,10 @@ class StoryEngine:
                         self._model,
                     )
                     break  # non-retryable
-                elif "invalid_api_key" in exc_str or "authentication_error" in exc_str or (
-                    exc_code in ("invalid_api_key", "authentication_error")
+                elif (
+                    "invalid_api_key" in exc_str
+                    or "authentication_error" in exc_str
+                    or (exc_code in ("invalid_api_key", "authentication_error"))
                 ):
                     log.error(
                         "Groq authentication failed. "
