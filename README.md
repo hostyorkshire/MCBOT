@@ -126,6 +126,9 @@ The wizard will:
   - `requirements-dev.txt` – `pytest`, `pytest-asyncio`, `psutil`
   - `dashboard/requirements.txt` – `flask`
 - Create `dashboard.sh` in the project root for easy dashboard startup.
+- **Always** install/refresh `/etc/systemd/system/dashboard-dashboard.service`
+  so the web dashboard starts automatically on boot (idempotent – safe to
+  re-run).
 - Prompt for each configuration value and write `.env`.
 - Optionally write `/etc/systemd/system/mcbot.service` with the correct paths
   and user, then run `systemctl daemon-reload` and

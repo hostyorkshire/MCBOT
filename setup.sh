@@ -220,6 +220,35 @@ chmod +x "${DASHBOARD_SH}"
 echo "dashboard.sh helper written to ${DASHBOARD_SH}"
 
 # ---------------------------------------------------------------------------
+# Install / refresh the dashboard systemd service (unconditional, idempotent)
+# ---------------------------------------------------------------------------
+
+printf "\n"
+echo "======================================================================="
+echo " Dashboard systemd service install"
+echo "======================================================================="
+
+INSTALL_DASHBOARD_SCRIPT="$(cd "$(dirname "$0")" && pwd)/dashboard/install-dashboard-service.sh"
+
+if [ -f "${INSTALL_DASHBOARD_SCRIPT}" ]; then
+    echo "Running dashboard service installer: ${INSTALL_DASHBOARD_SCRIPT}"
+    if sudo bash "${INSTALL_DASHBOARD_SCRIPT}"; then
+        echo ""
+        echo "Dashboard service installed/refreshed successfully."
+        echo "  Status:  sudo systemctl status dashboard-dashboard"
+        echo "  Logs:    sudo journalctl -u dashboard-dashboard -f"
+        echo "  Stop:    sudo systemctl stop dashboard-dashboard"
+        echo "  Disable: sudo systemctl disable dashboard-dashboard"
+    else
+        printf "\033[0;31mERROR: Dashboard service installation failed.\033[0m\n" >&2
+        exit 1
+    fi
+else
+    echo "WARNING: Dashboard service installer not found at ${INSTALL_DASHBOARD_SCRIPT}"
+    echo "         Skipping dashboard service installation."
+fi
+
+# ---------------------------------------------------------------------------
 # Offer to start the mcbot monitor
 # ---------------------------------------------------------------------------
 
