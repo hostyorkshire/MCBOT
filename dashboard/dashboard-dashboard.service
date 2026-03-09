@@ -1,0 +1,38 @@
+# dashboard-dashboard.service – systemd unit file for the MCBOT web dashboard
+#
+# Installation (manual):
+#   1. Copy this file to /etc/systemd/system/dashboard-dashboard.service:
+#        sudo cp dashboard/dashboard-dashboard.service /etc/systemd/system/
+#   2. Reload the systemd daemon:
+#        sudo systemctl daemon-reload
+#   3. Enable and start the service:
+#        sudo systemctl enable --now dashboard-dashboard.service
+#   4. Check the service status:
+#        sudo systemctl status dashboard-dashboard.service
+#   5. View logs:
+#        sudo journalctl -u dashboard-dashboard.service -f
+#
+# Or simply run the included install script (requires sudo):
+#   bash dashboard/install-dashboard-service.sh
+
+[Unit]
+Description=MCBOT Web Dashboard
+# Start after the network is up (dashboard binds to 0.0.0.0)
+After=network.target
+
+[Service]
+Type=simple
+# Run as the repository owner, not root
+User=cyoa
+WorkingDirectory=/home/cyoa/MCBOT
+# Use the virtual-environment Python so all dependencies are available
+ExecStart=/home/cyoa/MCBOT/.venv/bin/python -m dashboard.app
+# Restart the process automatically if it exits unexpectedly
+Restart=on-failure
+RestartSec=10
+# Route all stdout/stderr to the system journal (view with journalctl)
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
