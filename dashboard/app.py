@@ -5,9 +5,15 @@ Run with::
     cd <repo-root>
     python -m dashboard.app
 
-or, for auto-reload during development::
+or use the provided helper script::
 
-    flask --app dashboard.app run --debug --host=0.0.0.0
+    bash dashboard/start-dashboard.sh
+
+.. warning::
+    **Do NOT use** ``flask run`` to start the dashboard.  Flask's built-in
+    Werkzeug server does not support the Socket.IO transport required for
+    real-time live updates.  Always start the dashboard via
+    ``python -m dashboard.app`` or ``bash dashboard/start-dashboard.sh``.
 
 The dashboard is served at ``/dashboard/`` and exposes two JSON API endpoints:
 
@@ -23,6 +29,27 @@ is kept as a graceful fallback for environments that do not support WebSockets.
 from __future__ import annotations
 
 import os
+import sys
+
+# ---------------------------------------------------------------------------
+# Guard: refuse to start when invoked via `flask run`.
+# The Flask/Werkzeug development server does not support the Socket.IO
+# transport, so real-time updates will silently break.  Always use
+# `python -m dashboard.app` or `bash dashboard/start-dashboard.sh` instead.
+# ---------------------------------------------------------------------------
+_argv0 = os.path.basename(sys.argv[0]) if sys.argv else ""
+if _argv0 in ("flask", "flask.exe") and "run" in sys.argv[1:]:
+    sys.exit(
+        "\n"
+        "ERROR: Do not start the MCBOT dashboard with 'flask run'.\n"
+        "\n"
+        "  Flask's Werkzeug server does not support Socket.IO, so real-time\n"
+        "  live updates will NOT work.\n"
+        "\n"
+        "  Use one of these instead:\n"
+        "    python -m dashboard.app\n"
+        "    bash dashboard/start-dashboard.sh\n"
+    )
 
 from flask import Blueprint, Flask, jsonify, render_template
 from flask_socketio import SocketIO

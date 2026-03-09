@@ -39,20 +39,27 @@ This installs both `flask` and `flask-socketio` (plus its transport libraries).
 
 ### 2 – Run the dashboard
 
+**Option A – helper script (recommended, works out-of-the-box after cloning):**
+
+```bash
+# From the repository root or the dashboard/ directory:
+bash dashboard/start-dashboard.sh
+```
+
+The script installs requirements automatically and launches the dashboard
+with the correct runner.
+
+**Option B – run directly:**
+
 ```bash
 # From the repository root (important – the package path must resolve):
 python -m dashboard.app
 ```
 
-Or with Flask's development server (enables auto-reload):
-
-```bash
-FLASK_DEBUG=1 flask --app dashboard.app run --debug --host=0.0.0.0
-```
-
-> **Note:** When using `flask run` directly (instead of `python -m dashboard.app`),
-> the Socket.IO background watcher thread that broadcasts live updates is started
-> automatically via the application factory.  Both launch methods work the same way.
+> ⛔ **Do NOT use `flask run`.**  Flask's Werkzeug development server does not
+> support the Socket.IO transport, so real-time live updates will **not** work.
+> Always start the dashboard with `python -m dashboard.app` or
+> `bash dashboard/start-dashboard.sh`.
 
 Open **http://localhost:5000/dashboard/** in your browser on the host machine, or
 use the host machine's IP address to access the dashboard from another device on
@@ -163,7 +170,9 @@ share a process or port.
 # Tab 1 – start the bot
 python cyoa_bot.py
 
-# Tab 2 – start the dashboard
+# Tab 2 – start the dashboard (installs requirements automatically)
+bash dashboard/start-dashboard.sh
+# or equivalently:
 python -m dashboard.app
 ```
 
@@ -229,6 +238,7 @@ dashboard/
 ├── bot_state.json                 # Runtime state file (written by the bot; gitignored)
 ├── active_stories.json            # Persistent story log file (written on finish/restart; gitignored)
 ├── requirements.txt               # Flask + Flask-SocketIO dependencies
+├── start-dashboard.sh             # Helper: installs requirements and launches the dashboard
 ├── README.md                      # This file
 ├── dashboard-dashboard.service    # Legacy template (do not install directly; use install-dashboard-service.sh)
 ├── mcbot-dashboard.service        # Template showing the generated unit file format
