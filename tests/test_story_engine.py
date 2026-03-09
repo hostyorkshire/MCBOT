@@ -416,7 +416,9 @@ class TestLogStoryCalled:
         session.scene_in_chapter = 0
         session.chapter = 1
         engine._sessions["u1"] = session
-        engine._client = _make_mock_groq("Doom strikes!\n[END]\n1. Start over\n2. New adventure\n3. Quit")
+        engine._client = _make_mock_groq(
+            "Doom strikes!\n[END]\n1. Start over\n2. New adventure\n3. Quit"
+        )
         with patch("story_engine._log_story") as mock_log:
             await engine.advance_story("u1", "attack")  # risky → doom triggers
         mock_log.assert_called_once()
@@ -432,7 +434,9 @@ class TestLogStoryCalled:
         session.scene_in_chapter = SCENES_PER_CHAPTER - 1
         session.doom = 0
         engine._sessions["u1"] = session
-        engine._client = _make_mock_groq("It is over.\n[END]\n1. Start over\n2. New adventure\n3. Quit")
+        engine._client = _make_mock_groq(
+            "It is over.\n[END]\n1. Start over\n2. New adventure\n3. Quit"
+        )
         with patch("story_engine._log_story") as mock_log:
             await engine.advance_story("u1", "1")  # triggers forced finale
         mock_log.assert_called_once()

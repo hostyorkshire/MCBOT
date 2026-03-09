@@ -146,9 +146,11 @@ class TestUpsertStory:
         """A write failure must log a visible error, not silently fail."""
         import logging
 
-        with caplog.at_level(logging.ERROR, logger="dashboard.active_stories"):
-            with patch("dashboard.active_stories.os.replace", side_effect=OSError("disk full")):
-                _mod.upsert_story({"user_key": "u1", "started_at": 1.0})
+        with (
+            caplog.at_level(logging.ERROR, logger="dashboard.active_stories"),
+            patch("dashboard.active_stories.os.replace", side_effect=OSError("disk full")),
+        ):
+            _mod.upsert_story({"user_key": "u1", "started_at": 1.0})
         assert any("failed to write" in r.message for r in caplog.records)
 
     def test_upsert_concurrent_writes_do_not_corrupt(self):
