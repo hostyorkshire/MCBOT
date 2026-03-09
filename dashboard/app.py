@@ -21,7 +21,7 @@ import os
 
 from flask import Blueprint, Flask, jsonify, render_template
 
-from dashboard.state import get_sessions, get_status
+from dashboard.state import get_session, get_sessions, get_status
 
 # ---------------------------------------------------------------------------
 # Blueprint – all routes live under /dashboard/
@@ -51,6 +51,15 @@ def api_status():
 def api_stories():
     """Return active story sessions as JSON."""
     return jsonify(get_sessions())
+
+
+@bp.route("/story/<user_key>")
+def story_live(user_key: str):
+    """Render the live detail page for a single story session."""
+    session = get_session(user_key)
+    if session is None:
+        return render_template("story_not_found.html", user_key=user_key), 404
+    return render_template("story_live.html", session=session)
 
 
 # ---------------------------------------------------------------------------

@@ -380,6 +380,7 @@ class StoryEngine:
                     "finished": s.finished,
                     "awaiting_chapter_choice": s.awaiting_chapter_choice,
                     "started_at": s.started_at,
+                    "history": s.get_messages(),
                 }
             )
         return result

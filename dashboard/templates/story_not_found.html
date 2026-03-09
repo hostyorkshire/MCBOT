@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Story Not Found · MCBOT Dashboard</title>
+  <link rel="stylesheet" href="{{ url_for('dashboard.static', filename='style.css') }}" />
+</head>
+<body>
+
+  <div class="page-wrapper">
+
+    <!-- ── Header ──────────────────────────────────────────────── -->
+    <header>
+      <p class="badge">📡 Local Admin</p>
+      <h1>MCBOT <span>Dashboard</span></h1>
+      <p class="tagline">Story Not Found 🔍</p>
+    </header>
+
+    <!-- ── Back link ───────────────────────────────────────────── -->
+    <div class="refresh-bar">
+      <a class="btn-refresh" href="{{ url_for('dashboard.index') }}">← Back to Dashboard</a>
+    </div>
+
+    <!-- ── Not found card ──────────────────────────────────────── -->
+    <section class="card" aria-labelledby="notfound-heading">
+      <h2 id="notfound-heading">❌ Story Not Found</h2>
+      <p class="empty-note">
+        No active story session was found for user key
+        <strong>{{ user_key | e }}</strong>.<br />
+        The story may have ended or the user key is incorrect.
+      </p>
+    </section>
+
+    <!-- ── Footer ──────────────────────────────────────────────── -->
+    <footer>
+      MCBOT – MeshCore CYOA Story Bot &nbsp;·&nbsp;
+      <a href="https://github.com/hostyorkshire/MCBOT" target="_blank" rel="noopener">
+        github.com/hostyorkshire/MCBOT
+      </a>
+    </footer>
+
+  </div><!-- /.page-wrapper -->
+
+</body>
+</html>

@@ -265,6 +265,47 @@ footer a {
   text-decoration: underline;
 }
 
+/* ── Story history ──────────────────────────────────────────────────── */
+.story-history {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.story-message {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.7rem 0.9rem;
+  border: 2px solid var(--ink);
+  border-radius: 14px;
+  background: white;
+  box-shadow: 3px 3px 0 var(--ink);
+}
+
+.story-message--assistant {
+  background: rgba(0, 201, 177, 0.12);
+}
+
+.story-message--user {
+  background: rgba(255, 107, 0, 0.08);
+}
+
+.story-message__role {
+  font-size: 0.65rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--blob-purple);
+}
+
+.story-message__content {
+  font-size: 0.9rem;
+  font-weight: 600;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* ── Responsive ─────────────────────────────────────────────────────── */
 @media (max-width: 600px) {
   .stories-table thead { display: none; }
