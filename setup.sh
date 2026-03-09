@@ -45,6 +45,14 @@ echo "Installing dashboard requirements into the virtual environment ..."
 "$VENV_DIR/bin/pip" install --quiet -r dashboard/requirements.txt
 
 echo "Python dependencies installed successfully."
+
+# Verify that the venv Python binary is usable after installation.
+if [ ! -f "${VENV_DIR}/bin/python" ]; then
+    echo "ERROR: ${VENV_DIR}/bin/python not found after venv setup." >&2
+    echo "       Check for errors in the pip install steps above." >&2
+    exit 1
+fi
+
 printf "\n"
 
 # ---------------------------------------------------------------------------
@@ -123,11 +131,11 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Systemd service installation (optional)
+# Systemd service installation (bot + dashboard together, optional)
 # ---------------------------------------------------------------------------
 
 printf "\n"
-read -rp "Would you like to install and enable the mcbot systemd service (auto-start on reboot)? (y/N): " install_service
+read -rp "Would you like to install and enable both systemd services (mcbot + mcbot-dashboard) for auto-start on reboot? (y/N): " install_service
 if [ "$install_service" = "y" ] || [ "$install_service" = "Y" ]; then
 
     # Require root/sudo for systemd installation
@@ -153,12 +161,22 @@ if [ "$install_service" = "y" ] || [ "$install_service" = "Y" ]; then
     # fall back to the current user if SUDO_USER is unset or empty.
     BOT_USER="${SUDO_USER:-$(whoami)}"
     PYTHON_BIN="${WORKDIR}/.venv/bin/python"
-    SERVICE_DEST="/etc/systemd/system/mcbot.service"
 
-    echo "Installing systemd unit to ${SERVICE_DEST} ..."
-    echo "  User:           ${BOT_USER}"
+    # Verify the venv Python binary is present before writing service files.
+    if [ ! -f "${PYTHON_BIN}" ]; then
+        echo "ERROR: Venv Python not found at ${PYTHON_BIN}." >&2
+        echo "       The virtual environment may not have been created correctly." >&2
+        echo "       Re-run setup.sh without sudo to recreate the venv, then try again." >&2
+        exit 1
+    fi
+
+    # --- Install mcbot.service (CYOA bot) ---
+    BOT_SERVICE_DEST="/etc/systemd/system/mcbot.service"
+    echo ""
+    echo "Installing ${BOT_SERVICE_DEST} ..."
+    echo "  User:             ${BOT_USER}"
     echo "  WorkingDirectory: ${WORKDIR}"
-    echo "  ExecStart:      ${PYTHON_BIN} ${WORKDIR}/cyoa_bot.py"
+    echo "  ExecStart:        ${PYTHON_BIN} ${WORKDIR}/cyoa_bot.py"
 
     # Stop the service if it is already running before replacing the unit file;
     # this avoids leaving a running process tied to the old unit definition
@@ -166,7 +184,7 @@ if [ "$install_service" = "y" ] || [ "$install_service" = "Y" ]; then
     systemctl stop mcbot.service 2>/dev/null || true
 
     # Write the unit file with actual paths substituted in
-    cat > "${SERVICE_DEST}" << UNIT
+    cat > "${BOT_SERVICE_DEST}" << UNIT
 [Unit]
 Description=MeshCore CYOA Story Bot
 After=network.target
@@ -186,17 +204,80 @@ StandardError=journal
 WantedBy=multi-user.target
 UNIT
 
-    chmod 644 "${SERVICE_DEST}"
+    chmod 644 "${BOT_SERVICE_DEST}"
     systemctl daemon-reload
     systemctl enable --now mcbot.service
+    echo "mcbot.service installed and enabled."
 
+    # --- Install mcbot-dashboard.service (web dashboard) ---
+    DASHBOARD_SERVICE_DEST="/etc/systemd/system/mcbot-dashboard.service"
     echo ""
-    echo "mcbot.service installed and enabled successfully!"
-    echo "  Status:   sudo systemctl status mcbot"
-    echo "  Logs:     sudo journalctl -u mcbot -f"
-    echo "  Stop:     sudo systemctl stop mcbot"
-    echo "  Disable:  sudo systemctl disable mcbot"
-    printf "\nThe bot will now start automatically on every reboot.\n"
+    echo "Installing ${DASHBOARD_SERVICE_DEST} ..."
+    echo "  User:             ${BOT_USER}"
+    echo "  WorkingDirectory: ${WORKDIR}"
+    echo "  ExecStart:        ${PYTHON_BIN} -m dashboard.app"
+
+    # Migrate away from the old service name (if still active).
+    if systemctl is-active --quiet dashboard-dashboard.service 2>/dev/null; then
+        echo "Stopping legacy dashboard-dashboard service..."
+        systemctl stop dashboard-dashboard.service || true
+    fi
+    if systemctl is-enabled --quiet dashboard-dashboard.service 2>/dev/null; then
+        echo "Disabling legacy dashboard-dashboard service..."
+        systemctl disable dashboard-dashboard.service || true
+    fi
+    if [ -f /etc/systemd/system/dashboard-dashboard.service ]; then
+        rm -f /etc/systemd/system/dashboard-dashboard.service
+    fi
+
+    # Stop the current service (if running) before replacing the unit file.
+    systemctl stop mcbot-dashboard.service 2>/dev/null || true
+
+    # Write the unit file with actual paths substituted in
+    cat > "${DASHBOARD_SERVICE_DEST}" << UNIT
+[Unit]
+Description=MCBOT Web Dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=${BOT_USER}
+WorkingDirectory=${WORKDIR}
+ExecStart=${PYTHON_BIN} -m dashboard.app
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+    chmod 644 "${DASHBOARD_SERVICE_DEST}"
+    systemctl daemon-reload
+    systemctl enable --now mcbot-dashboard.service
+    echo "mcbot-dashboard.service installed and enabled."
+
+    # --- Post-install status for both services ---
+    echo ""
+    echo "======================================================================="
+    echo " Post-install service status"
+    echo "======================================================================="
+    systemctl status mcbot.service --no-pager --lines=5 || true
+    echo ""
+    systemctl status mcbot-dashboard.service --no-pager --lines=5 || true
+    echo ""
+    printf "Both services are enabled and will start automatically on every reboot.\n"
+    echo ""
+    echo "  Bot:              sudo systemctl status mcbot"
+    echo "  Bot logs:         sudo journalctl -u mcbot -f"
+    echo "  Restart bot:      sudo systemctl restart mcbot"
+    echo "  Dashboard:        sudo systemctl status mcbot-dashboard"
+    echo "  Dashboard logs:   sudo journalctl -u mcbot-dashboard -f"
+    echo "  Restart dashboard:sudo systemctl restart mcbot-dashboard"
+    echo "  Stop bot:         sudo systemctl stop mcbot"
+    echo "  Stop dashboard:   sudo systemctl stop mcbot-dashboard"
 else
     # Print manual next steps when skipping service installation
     printf "\nNext steps:\n1. Activate the virtual environment: source .venv/bin/activate\n2. Run: python cyoa_bot.py\n   (or without activating: .venv/bin/python cyoa_bot.py)\n"
@@ -218,35 +299,6 @@ exec python -m dashboard.app
 EOF
 chmod +x "${DASHBOARD_SH}"
 echo "dashboard.sh helper written to ${DASHBOARD_SH}"
-
-# ---------------------------------------------------------------------------
-# Install / refresh the dashboard systemd service (unconditional, idempotent)
-# ---------------------------------------------------------------------------
-
-printf "\n"
-echo "======================================================================="
-echo " Dashboard systemd service install"
-echo "======================================================================="
-
-INSTALL_DASHBOARD_SCRIPT="$(cd "$(dirname "$0")" && pwd)/dashboard/install-dashboard-service.sh"
-
-if [ -f "${INSTALL_DASHBOARD_SCRIPT}" ]; then
-    echo "Running dashboard service installer: ${INSTALL_DASHBOARD_SCRIPT}"
-    if sudo bash "${INSTALL_DASHBOARD_SCRIPT}"; then
-        echo ""
-        echo "Dashboard service installed/refreshed successfully."
-        echo "  Status:  sudo systemctl status mcbot-dashboard"
-        echo "  Logs:    sudo journalctl -u mcbot-dashboard -f"
-        echo "  Stop:    sudo systemctl stop mcbot-dashboard"
-        echo "  Disable: sudo systemctl disable mcbot-dashboard"
-    else
-        printf "\033[0;31mERROR: Dashboard service installation failed.\033[0m\n" >&2
-        exit 1
-    fi
-else
-    echo "WARNING: Dashboard service installer not found at ${INSTALL_DASHBOARD_SCRIPT}"
-    echo "         Skipping dashboard service installation."
-fi
 
 # ---------------------------------------------------------------------------
 # Offer to start the mcbot monitor
@@ -274,12 +326,17 @@ echo "======================================================================="
 echo " Setup complete!  Here is how to start everything:"
 echo "======================================================================="
 echo ""
-echo "  Start the bot:"
+echo "  Start the bot (manual):"
 echo "    source .venv/bin/activate && python cyoa_bot.py"
+echo "    (or: sudo systemctl start mcbot  — if service was installed)"
 echo ""
-echo "  Start the web dashboard:"
+echo "  Start the web dashboard (manual):"
 echo "    ./dashboard.sh"
+echo "    (or: sudo systemctl start mcbot-dashboard  — if service was installed)"
 echo ""
 echo "  Then open your browser at:  http://localhost:5000"
+echo ""
+echo "  If both services were installed, they will start automatically"
+echo "  on every reboot — no manual action needed."
 echo ""
 echo "======================================================================="
