@@ -1,9 +1,39 @@
 #!/bin/bash
 set -euo pipefail
 
+# ---------------------------------------------------------------------------
+# MCBOT – MeshCore CYOA Adventure Bot  |  Setup Wizard
+# ---------------------------------------------------------------------------
+# MCBOT always runs inside a Python virtual environment (.venv).
+# This script is idempotent – re-run it safely at any time to repair or
+# upgrade an existing installation without losing your configuration.
+# ---------------------------------------------------------------------------
+
+cat << 'BANNER'
+
+  __  __  ____  ____   ___ _____
+ |  \/  |/ ___|| __ ) / _ \_   _|
+ | |\/| | |    |  _ \| | | || |
+ | |  | | |___ | |_) | |_| || |
+ |_|  |_|\____|____/ \___/ |_|
+
+      .---------.
+      |  o   o  |   ~ Choose Your Own Adventure ~
+      |    ^    |   MeshCore AI Story Bot
+      |  \___/  |   Powered by Groq AI
+      '---------'
+      /|       |\
+     d '-------' b   Adventure awaits, brave hero!
+
+  >>>  Setup Wizard  –  stand by...  <<<
+
+BANNER
+
+# ---------------------------------------------------------------------------
 # Resolve the absolute path of this script so that a reliable sudo command
 # can be printed (or used for auto re-exec) regardless of how the script was
 # invoked (./setup.sh, bash setup.sh, from another directory, etc.).
+# ---------------------------------------------------------------------------
 SCRIPT_ABS="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 
 # Check if .env.example exists
@@ -27,16 +57,52 @@ VENV_DIR="$(cd "$(dirname "$0")" && pwd)/.venv"
 
 if [ -d "$VENV_DIR" ]; then
     echo "Reusing existing virtual environment at ${VENV_DIR}"
+    # Verify the existing venv is functional; a corrupted or outdated venv
+    # (e.g. after a Python version upgrade) will fail here.
+    if ! "$VENV_DIR/bin/pip" --version > /dev/null 2>&1; then
+        echo "" >&2
+        echo "ERROR: Existing virtual environment at ${VENV_DIR} appears broken." >&2
+        echo "       (pip is not functional inside the venv)" >&2
+        echo "" >&2
+        echo "  Recovery options:" >&2
+        echo "    1. Remove the venv and re-run setup:" >&2
+        echo "         rm -rf ${VENV_DIR} && bash \"${SCRIPT_ABS}\"" >&2
+        echo "    2. If you recently upgraded Python, a fresh venv is required." >&2
+        echo "" >&2
+        exit 1
+    fi
 else
     echo "Creating virtual environment at ${VENV_DIR} ..."
-    python3 -m venv "$VENV_DIR"
+    if ! python3 -m venv "$VENV_DIR"; then
+        echo "" >&2
+        echo "ERROR: Failed to create the virtual environment." >&2
+        echo "       Ensure python3-venv is installed:" >&2
+        echo "         sudo apt install python3-venv" >&2
+        exit 1
+    fi
 fi
 
 echo "Upgrading pip inside the virtual environment ..."
 "$VENV_DIR/bin/pip" install --quiet --upgrade pip
 
+# Verify requirements.txt is present before attempting to install from it.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [ ! -f "${SCRIPT_DIR}/requirements.txt" ]; then
+    echo "" >&2
+    echo "ERROR: requirements.txt not found in ${SCRIPT_DIR}." >&2
+    echo "       Cannot install Python dependencies without it." >&2
+    echo "       Please ensure requirements.txt exists in the repository root." >&2
+    exit 1
+fi
+
 echo "Installing Python requirements into the virtual environment ..."
-"$VENV_DIR/bin/pip" install --quiet -r requirements.txt
+if ! "$VENV_DIR/bin/pip" install --quiet -r requirements.txt; then
+    echo "" >&2
+    echo "ERROR: Failed to install dependencies from requirements.txt." >&2
+    echo "       Check the output above for details, then try:" >&2
+    echo "         ${VENV_DIR}/bin/pip install -r requirements.txt" >&2
+    exit 1
+fi
 
 echo "Installing dev/monitor requirements into the virtual environment ..."
 "$VENV_DIR/bin/pip" install --quiet -r requirements-dev.txt
@@ -49,6 +115,17 @@ if ! "$VENV_DIR/bin/python" -c "import flask_socketio" 2>/dev/null; then
     echo "WARNING: flask_socketio could not be imported after installation." >&2
     echo "         Check for errors in the pip install output above." >&2
     echo "         To retry: ${VENV_DIR}/bin/pip install -r dashboard/requirements.txt" >&2
+fi
+
+# Verify that python-dotenv is importable; this module is required by the bot
+# to read its .env configuration file (from dotenv import load_dotenv).
+if ! "$VENV_DIR/bin/python" -c "from dotenv import load_dotenv" 2>/dev/null; then
+    echo "" >&2
+    echo "ERROR: python-dotenv could not be imported after installation." >&2
+    echo "       This module is required for the bot to read its .env config." >&2
+    echo "       Try running:" >&2
+    echo "         ${VENV_DIR}/bin/pip install python-dotenv" >&2
+    exit 1
 fi
 
 echo "Python dependencies installed successfully."
@@ -274,7 +351,12 @@ UNIT
     echo "  Stop dashboard:   sudo systemctl stop dashboard"
 else
     # Print manual next steps when skipping service installation
-    printf "\nNext steps:\n1. Activate the virtual environment: source .venv/bin/activate\n2. Run: python cyoa_bot.py\n   (or without activating: .venv/bin/python cyoa_bot.py)\n"
+    printf "\nNext steps:\n"
+    printf "  1. Activate the venv:   source .venv/bin/activate\n"
+    printf "  2. Run the bot:         python cyoa_bot.py\n"
+    printf "     (or without activating: .venv/bin/python cyoa_bot.py)\n"
+    printf "  3. Re-run setup:        bash \"%s\"\n" "${SCRIPT_ABS}"
+    printf "  4. To install systemd:  sudo bash \"%s\"\n\n" "${SCRIPT_ABS}"
 fi
 
 # ---------------------------------------------------------------------------
@@ -320,15 +402,36 @@ echo "======================================================================="
 echo " Setup complete!  Here is how to start everything:"
 echo "======================================================================="
 echo ""
-echo "  Start the bot (manual):"
-echo "    source .venv/bin/activate && python cyoa_bot.py"
-echo "    (or: sudo systemctl start mcbot  — if service was installed)"
+echo "  MCBOT always runs inside the Python virtual environment (.venv/)."
+echo ""
+echo "  Activate the venv (required for manual use in a new shell):"
+echo "    source .venv/bin/activate"
+echo "    python cyoa_bot.py"
+echo ""
+echo "  Or run without activating (single command):"
+echo "    .venv/bin/python cyoa_bot.py"
+echo ""
+echo "  Start the bot via systemd (if service was installed):"
+echo "    sudo systemctl start mcbot"
+echo "    sudo systemctl status mcbot"
+echo "    sudo journalctl -u mcbot -f"
 echo ""
 echo "  Start the web dashboard (manual):"
 echo "    ./dashboard.sh"
 echo "    (or: sudo systemctl start dashboard  — if service was installed)"
 echo ""
 echo "  Then open your browser at:  http://localhost:5000"
+echo ""
+echo "  Install / restart the systemd services after any update:"
+echo "    sudo bash \"${SCRIPT_ABS}\"   # re-run setup with sudo to reinstall services"
+echo "    sudo systemctl restart mcbot"
+echo "    sudo systemctl restart dashboard"
+echo ""
+echo "  Re-run setup at any time to repair or upgrade the installation:"
+echo "    bash \"${SCRIPT_ABS}\""
+echo ""
+echo "  If you see a broken venv or missing module, remove and recreate it:"
+echo "    rm -rf .venv && bash \"${SCRIPT_ABS}\""
 echo ""
 echo "  If both services were installed, they will start automatically"
 echo "  on every reboot — no manual action needed."
