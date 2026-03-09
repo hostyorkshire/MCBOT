@@ -125,9 +125,12 @@
     }
 
     // ── Constants ──────────────────────────────────────────────────
+    // USER_KEY matches the value already present in the page URL
+    // (/dashboard/story/<user_key>), so embedding it here is not a
+    // new exposure of sensitive data.
     const USER_KEY      = {{ session.user_key | tojson }};
     const STORIES_URL   = "{{ url_for('dashboard.api_stories') }}";
-    const POLL_INTERVAL = 10_000;  // fallback polling interval (10 s)
+    const POLL_INTERVAL = 10_000;  // fallback polling interval (10 seconds)
 
     // ── Doom arch gauge ────────────────────────────────────────────
     /**
@@ -180,6 +183,8 @@
         if (pct >= 1) {
           // Full semicircle: route via the midpoint to avoid a degenerate path
           // when start and end coordinates are identical.
+          // SVG arc syntax: A rx ry x-rotation large-arc-flag sweep-flag x y
+          // (0 0 1 = no rotation, small arc, clockwise direction)
           d = `M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx} ${cy - r} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`;
         } else {
           // Partial arc from left endpoint clockwise to the fill point.
@@ -188,6 +193,8 @@
           const ex = cx + r * Math.cos(angle);
           const ey = cy - r * Math.sin(angle);
           // large-arc-flag is always 0 because the fill arc never exceeds 180°.
+          // SVG arc syntax: A rx ry x-rotation large-arc-flag sweep-flag x y
+          // (0 0 1 = no rotation, small arc, clockwise direction)
           d = `M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${ex.toFixed(2)} ${ey.toFixed(2)}`;
         }
         fillArc.setAttribute("d", d);
@@ -265,7 +272,7 @@
           if (!resp.ok) return;
           const stories = await resp.json();
           applyStoriesUpdate(stories);
-        } catch (_) { /* network error – ignore, retry next tick */ }
+        } catch (err) { console.debug("Story polling failed:", err); }
       }, POLL_INTERVAL);
     }
 
