@@ -329,10 +329,16 @@ the project root.
 ./dashboard.sh
 ```
 
-Then open **http://localhost:5000** in your browser.
+Then open **http://localhost:5000/dashboard/** in your browser, or use the
+host machine's IP address (e.g. **http://192.168.1.10:5000/dashboard/**) to
+access it from another device on the same network.
 
 The script activates the `.venv` virtual environment automatically, so you do
 not need to run `source .venv/bin/activate` beforehand.
+
+> ⚠️ **Security warning:** the dashboard binds to `0.0.0.0`, making it
+> reachable by *any* device on the same network.  Do not expose this port to
+> the internet without adding authentication or firewall restrictions.
 
 ### Starting the bot and dashboard together
 

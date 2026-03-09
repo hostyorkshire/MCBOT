@@ -44,10 +44,17 @@ python -m dashboard.app
 Or with Flask's development server (enables auto-reload):
 
 ```bash
-FLASK_DEBUG=1 flask --app dashboard.app run --debug
+FLASK_DEBUG=1 flask --app dashboard.app run --debug --host=0.0.0.0
 ```
 
-Open **http://127.0.0.1:5000/dashboard/** in your browser.
+Open **http://localhost:5000/dashboard/** in your browser on the host machine, or
+use the host machine's IP address to access the dashboard from another device on
+the same network (e.g. **http://192.168.1.10:5000/dashboard/**).
+
+> ⚠️ **Security warning:** binding to `0.0.0.0` makes the dashboard reachable
+> by *any* device on the same network.  This is intentional for local
+> development but **not safe for production** without additional authentication
+> or firewall restrictions.  Do not expose this port to the internet.
 
 ---
 
@@ -69,6 +76,10 @@ python -m dashboard.app
 ```
 
 If the bot is not running, the dashboard shows the bot as **offline**.
+
+To access the dashboard from another device on the same network, navigate to
+`http://<host-ip>:5000/dashboard/` where `<host-ip>` is the IP address of the
+machine running the dashboard (e.g. `http://192.168.1.10:5000/dashboard/`).
 
 ---
 
