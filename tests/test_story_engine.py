@@ -69,7 +69,9 @@ class TestSession:
         s = Session("u1", "Alice", max_history=10)
         s.add_message("user", "hello")
         assert len(s.history) == 1
-        assert s.history[0] == {"role": "user", "content": "hello"}
+        assert s.history[0]["role"] == "user"
+        assert s.history[0]["content"] == "hello"
+        assert "ts" in s.history[0]
 
     def test_history_bounded_by_max_history(self):
         s = Session("u1", "Alice", max_history=4)

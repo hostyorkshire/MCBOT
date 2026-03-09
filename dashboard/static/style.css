@@ -299,6 +299,13 @@ footer a {
   color: var(--blob-purple);
 }
 
+.story-message__ts {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: #888;
+  letter-spacing: 0.02em;
+}
+
 .story-message__content {
   font-size: 0.9rem;
   font-weight: 600;
