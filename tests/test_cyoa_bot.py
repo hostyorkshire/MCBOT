@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import sys
 import types
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -738,7 +737,7 @@ class TestBotHandlerStart:
 
     @pytest.mark.asyncio
     async def test_start_starts_story_immediately(self, bot):
-        handler, mc, story_engine = _make_handler(bot)
+        handler, _mc, story_engine = _make_handler(bot)
         await handler.handle("bb22", "start", "Bob")
         story_engine.start_story.assert_called_once_with("bb22", "Bob", genre="wasteland")
 
@@ -951,25 +950,25 @@ class TestBotHandlerGenreStart:
 
     @pytest.mark.asyncio
     async def test_start_horror_calls_engine_with_genre(self, bot):
-        handler, mc, story_engine = _make_handler(bot)
+        handler, _mc, story_engine = _make_handler(bot)
         await handler.handle("gg77", "start horror", "Grace")
         story_engine.start_story.assert_called_once_with("gg77", "Grace", genre="horror")
 
     @pytest.mark.asyncio
     async def test_start_numeric_2_maps_to_cozy(self, bot):
-        handler, mc, story_engine = _make_handler(bot)
+        handler, _mc, story_engine = _make_handler(bot)
         await handler.handle("gg77", "start 2", "Grace")
         story_engine.start_story.assert_called_once_with("gg77", "Grace", genre="cozy")
 
     @pytest.mark.asyncio
     async def test_start_numeric_3_maps_to_horror(self, bot):
-        handler, mc, story_engine = _make_handler(bot)
+        handler, _mc, story_engine = _make_handler(bot)
         await handler.handle("gg77", "start 3", "Grace")
         story_engine.start_story.assert_called_once_with("gg77", "Grace", genre="horror")
 
     @pytest.mark.asyncio
     async def test_start_no_arg_defaults_to_wasteland(self, bot):
-        handler, mc, story_engine = _make_handler(bot)
+        handler, _mc, story_engine = _make_handler(bot)
         await handler.handle("gg77", "start", "Grace")
         story_engine.start_story.assert_called_once_with("gg77", "Grace", genre="wasteland")
 
@@ -991,33 +990,33 @@ class TestBotHandlerGenreStart:
 
     @pytest.mark.asyncio
     async def test_new_horror_triggers_horror_genre(self, bot):
-        handler, mc, story_engine = _make_handler(bot)
+        handler, _mc, story_engine = _make_handler(bot)
         await handler.handle("gg77", "new horror", "Grace")
         story_engine.start_story.assert_called_once_with("gg77", "Grace", genre="horror")
 
     @pytest.mark.asyncio
     async def test_begin_comedy_triggers_comedy_genre(self, bot):
-        handler, mc, story_engine = _make_handler(bot)
+        handler, _mc, story_engine = _make_handler(bot)
         await handler.handle("gg77", "begin comedy", "Grace")
         story_engine.start_story.assert_called_once_with("gg77", "Grace", genre="comedy")
 
     @pytest.mark.asyncio
     async def test_slash_start_horror(self, bot):
-        handler, mc, story_engine = _make_handler(bot)
+        handler, _mc, story_engine = _make_handler(bot)
         await handler.handle("gg77", "/start horror", "Grace")
         story_engine.start_story.assert_called_once_with("gg77", "Grace", genre="horror")
 
     @pytest.mark.asyncio
     async def test_reset_with_genre_uses_that_genre(self, bot):
         """restart <genre> should start story in that genre immediately."""
-        handler, mc, story_engine = _make_handler(bot)
+        handler, _mc, story_engine = _make_handler(bot)
         await handler.handle("gg77", "restart mil", "Grace")
         story_engine.start_story.assert_called_once_with("gg77", "Grace", genre="mil")
 
     @pytest.mark.asyncio
     async def test_reset_no_genre_defaults_to_wasteland(self, bot):
         """restart with no genre should default to wasteland."""
-        handler, mc, story_engine = _make_handler(bot)
+        handler, _mc, story_engine = _make_handler(bot)
         await handler.handle("gg77", "restart", "Grace")
         story_engine.start_story.assert_called_once_with("gg77", "Grace", genre="wasteland")
 
