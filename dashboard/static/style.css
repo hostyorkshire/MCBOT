@@ -157,11 +157,14 @@ header .tagline {
   box-shadow: 2px 2px 0 var(--ink);
   color: var(--ink);
 }
-.status-pill.running { background: var(--status-running); }
-.status-pill.idle    { background: var(--status-idle); }
-.status-pill.offline { background: var(--status-offline); color: #444; }
-.status-pill.stopped { background: var(--status-stopped); color: white; }
-.status-pill.unknown { background: #ddd; color: #444; }
+.status-pill.running      { background: var(--status-running); }
+.status-pill.idle         { background: var(--status-idle); }
+.status-pill.offline      { background: var(--status-offline); color: #444; }
+.status-pill.stopped      { background: var(--status-stopped); color: white; }
+.status-pill.unknown      { background: #ddd; color: #444; }
+.status-pill.active       { background: var(--blob-teal); }
+.status-pill.finished     { background: #636366; color: #fff; }
+.status-pill.chapter-end  { background: var(--blob-purple); color: #fff; }
 
 /* ── Stories table ──────────────────────────────────────────────────── */
 .stories-table {
