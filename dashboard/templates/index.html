@@ -89,8 +89,9 @@
 
   <script>
     // ── Constants ──────────────────────────────────────────────────
-    const STATUS_URL  = "{{ url_for('dashboard.api_status') }}";
-    const STORIES_URL = "{{ url_for('dashboard.api_stories') }}";
+    const STATUS_URL      = "{{ url_for('dashboard.api_status') }}";
+    const STORIES_URL     = "{{ url_for('dashboard.api_stories') }}";
+    const STORY_BASE_URL  = "{{ url_for('dashboard.story_live', user_key='__KEY__') }}";
     const AUTO_REFRESH_MS = 10_000;  // refresh every 10 s
 
     // ── Helpers ────────────────────────────────────────────────────
@@ -153,9 +154,10 @@
 
       sessions.forEach(s => {
         const state = sessionState(s);
+        const storyUrl = STORY_BASE_URL.replace("__KEY__", encodeURIComponent(s.user_key));
         const tr = document.createElement("tr");
         tr.innerHTML = `
-          <td data-label="User">${escHtml(s.user_name)}</td>
+          <td data-label="User"><a href="${storyUrl}">${escHtml(s.user_name)}</a></td>
           <td data-label="Genre"><span class="genre-tag">${escHtml(s.genre_name || s.genre)}</span></td>
           <td data-label="Chapter">${s.chapter}</td>
           <td data-label="Scene">${s.scene_in_chapter}</td>

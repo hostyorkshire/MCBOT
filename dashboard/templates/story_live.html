@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{ session.user_name | e }} – Story Live View · MCBOT Dashboard</title>
+  <link rel="stylesheet" href="{{ url_for('dashboard.static', filename='style.css') }}" />
+</head>
+<body>
+
+  <div class="page-wrapper">
+
+    <!-- ── Header ──────────────────────────────────────────────── -->
+    <header>
+      <p class="badge">📡 Local Admin</p>
+      <h1>MCBOT <span>Dashboard</span></h1>
+      <p class="tagline">Story Live View 📖</p>
+    </header>
+
+    <!-- ── Back link ───────────────────────────────────────────── -->
+    <div class="refresh-bar">
+      <a class="btn-refresh" href="{{ url_for('dashboard.index') }}">← Back to Dashboard</a>
+    </div>
+
+    <!-- ── Session details card ────────────────────────────────── -->
+    <section class="card" aria-labelledby="story-heading">
+      <h2 id="story-heading">📖 {{ session.user_name | e }}'s Story</h2>
+
+      <div class="status-grid">
+
+        <div class="stat-box">
+          <div class="stat-label">Genre</div>
+          <div class="stat-value">
+            <span class="genre-tag">{{ session.genre_name | e }}</span>
+          </div>
+        </div>
+
+        <div class="stat-box">
+          <div class="stat-label">Chapter</div>
+          <div class="stat-value">{{ session.chapter }}</div>
+        </div>
+
+        <div class="stat-box">
+          <div class="stat-label">Scene</div>
+          <div class="stat-value">{{ session.scene_in_chapter }}</div>
+        </div>
+
+        <div class="stat-box">
+          <div class="stat-label">Doom</div>
+          <div class="stat-value">{{ session.doom }}</div>
+        </div>
+
+        <div class="stat-box">
+          <div class="stat-label">Status</div>
+          <div class="stat-value">
+            {% if session.finished %}
+              <span class="status-pill stopped">Finished</span>
+            {% elif session.awaiting_chapter_choice %}
+              <span class="status-pill idle">Chapter End</span>
+            {% else %}
+              <span class="status-pill running">Active</span>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="stat-box">
+          <div class="stat-label">Started</div>
+          <div class="stat-value" style="font-size:1rem;" id="stat-started">
+            {% if session.started_at %}{{ session.started_at }}{% else %}—{% endif %}
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ── Story history card ───────────────────────────────────── -->
+    <section class="card" aria-labelledby="history-heading">
+      <h2 id="history-heading">💬 Story So Far</h2>
+
+      {% set history = session.get('history', []) %}
+      {% if history %}
+        <div class="story-history">
+          {% for msg in history %}
+            <div class="story-message story-message--{{ msg.role }}">
+              <span class="story-message__role">{{ msg.role | capitalize }}</span>
+              <span class="story-message__content">{{ msg.content | e }}</span>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="empty-note">No story messages yet.</p>
+      {% endif %}
+    </section>
+
+    <!-- ── Footer ──────────────────────────────────────────────── -->
+    <footer>
+      MCBOT – MeshCore CYOA Story Bot &nbsp;·&nbsp;
+      <a href="https://github.com/hostyorkshire/MCBOT" target="_blank" rel="noopener">
+        github.com/hostyorkshire/MCBOT
+      </a>
+    </footer>
+
+  </div><!-- /.page-wrapper -->
+
+  <script>
+    // Format the started_at Unix timestamp as a human-readable local time.
+    const startedEl = document.getElementById("stat-started");
+    if (startedEl) {
+      const ts = parseFloat(startedEl.textContent.trim());
+      if (!isNaN(ts) && ts > 0) {
+        startedEl.textContent = new Date(ts * 1000).toLocaleString();
+      }
+    }
+  </script>
+
+</body>
+</html>

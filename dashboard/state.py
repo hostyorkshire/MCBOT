@@ -92,6 +92,14 @@ def get_sessions() -> list[dict]:
     return state.get("sessions", [])
 
 
+def get_session(user_key: str) -> dict | None:
+    """Return the session dict for *user_key*, or ``None`` if not found."""
+    for session in get_sessions():
+        if session.get("user_key") == user_key:
+            return session
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
