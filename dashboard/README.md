@@ -66,14 +66,24 @@ boot and restart itself if it ever crashes.
 
 ### Quick install (recommended)
 
-Run the included helper script from the **repository root** (requires `sudo`):
+**The easiest way** is simply to run `setup.sh` from the repository root – it
+automatically (re)installs and enables the dashboard systemd service every time
+it runs, with no manual steps required:
+
+```bash
+sudo bash "$(pwd)/setup.sh"
+```
+
+Alternatively, run the included helper script directly from the **repository
+root** (requires `sudo`):
 
 ```bash
 bash dashboard/install-dashboard-service.sh
 ```
 
-This copies the unit file to `/etc/systemd/system/`, reloads the daemon, and
-enables + starts the service immediately.
+Both approaches copy the unit file to `/etc/systemd/system/`, reload the
+daemon, and enable + start the service immediately.  The operation is
+idempotent – running it multiple times is safe.
 
 ### Manual installation
 
