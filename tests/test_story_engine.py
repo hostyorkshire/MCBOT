@@ -9,6 +9,7 @@ import pytest
 from story_engine import (
     _CHAPTER_CHOICE_SUFFIX,
     DOOM_MAX,
+    LLMError,
     MAX_CHAPTERS,
     SCENES_PER_CHAPTER,
     Session,
@@ -165,13 +166,46 @@ class TestStoryEngineStory:
         assert len(engine._sessions["u1"].history) == 4
 
     @pytest.mark.asyncio
-    async def test_api_error_returns_fallback_message(self, engine: StoryEngine):
+    async def test_api_error_on_start_story_returns_error_message(self, engine: StoryEngine):
+        engine._client.chat.completions.create = AsyncMock(side_effect=RuntimeError("timeout"))
+        result = await engine.start_story("u1", "Frank")
+        assert "API error" in result
+
+    @pytest.mark.asyncio
+    async def test_api_error_on_start_story_does_not_create_session(self, engine: StoryEngine):
         engine._client.chat.completions.create = AsyncMock(side_effect=RuntimeError("timeout"))
         await engine.start_story("u1", "Frank")
-        # Re-inject mock with exception for the advance call
+        assert not engine.has_session("u1")
+
+    @pytest.mark.asyncio
+    async def test_api_error_on_advance_story_returns_error_message(self, engine: StoryEngine):
+        await engine.start_story("u1", "Frank")
         engine._client.chat.completions.create = AsyncMock(side_effect=RuntimeError("timeout"))
         result = await engine.advance_story("u1", "1")
-        assert "API error" in result or "error" in result.lower()
+        assert "API error" in result
+
+    @pytest.mark.asyncio
+    async def test_api_error_on_advance_story_does_not_poison_history(self, engine: StoryEngine):
+        await engine.start_story("u1", "Frank")
+        history_len_before = len(engine._sessions["u1"].history)
+        engine._client.chat.completions.create = AsyncMock(side_effect=RuntimeError("timeout"))
+        await engine.advance_story("u1", "1")
+        # History must be unchanged: no error string and no extra messages
+        session = engine._sessions["u1"]
+        assert len(session.history) == history_len_before
+        assert all("API error" not in msg["content"] for msg in session.history)
+
+    @pytest.mark.asyncio
+    async def test_start_story_after_api_error_starts_fresh(self, engine: StoryEngine):
+        """After a failed start, a successful retry must create a clean session."""
+        engine._client.chat.completions.create = AsyncMock(side_effect=RuntimeError("timeout"))
+        await engine.start_story("u1", "Frank")
+        assert not engine.has_session("u1")
+        # Restore working mock and retry
+        engine._client = _make_mock_groq()
+        result = await engine.start_story("u1", "Frank")
+        assert engine.has_session("u1")
+        assert "API error" not in result
 
     @pytest.mark.asyncio
     async def test_llm_reply_choices_formatted_on_separate_lines(self, engine: StoryEngine):
