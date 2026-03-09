@@ -242,6 +242,91 @@ class TestStoryEngineStory:
                     f"Unexpected keys in API message: {set(msg.keys()) - {'role', 'content'}}"
                 )
 
+    @pytest.mark.asyncio
+    async def test_call_llm_retries_on_transient_error(self, engine: StoryEngine):
+        """_call_llm must retry up to 3 times on transient errors before failing."""
+        call_count = 0
+
+        async def _flaky(**kwargs):  # type: ignore[no-untyped-def]
+            nonlocal call_count
+            call_count += 1
+            if call_count < 3:
+                raise RuntimeError("transient network error")
+            mock_choice = MagicMock()
+            mock_choice.message.content = "Story.\n1. Option A\n2. Option B\n3. Option C"
+            mock_response = MagicMock()
+            mock_response.choices = [mock_choice]
+            return mock_response
+
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            engine._client.chat.completions.create = _flaky
+            result = await engine.start_story("u1", "Ivy")
+
+        assert call_count == 3
+        assert "API error" not in result
+
+    @pytest.mark.asyncio
+    async def test_call_llm_raises_llmerror_after_all_retries_exhausted(self, engine: StoryEngine):
+        """_call_llm must raise LLMError after 3 consecutive failures."""
+        engine._client.chat.completions.create = AsyncMock(
+            side_effect=RuntimeError("persistent error")
+        )
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            result = await engine.start_story("u1", "Jack")
+        assert "API error" in result
+
+    @pytest.mark.asyncio
+    async def test_call_llm_no_retry_on_model_decommissioned(self, engine: StoryEngine):
+        """_call_llm must not retry when the model is decommissioned."""
+        call_count = 0
+
+        async def _decommissioned(**kwargs):  # type: ignore[no-untyped-def]
+            nonlocal call_count
+            call_count += 1
+            exc = RuntimeError("model_decommissioned")
+            raise exc
+
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            engine._client.chat.completions.create = _decommissioned
+            result = await engine.start_story("u1", "Kate")
+
+        assert call_count == 1  # no retry for non-retryable errors
+        assert "API error" in result
+
+    @pytest.mark.asyncio
+    async def test_call_llm_no_retry_on_invalid_api_key(self, engine: StoryEngine):
+        """_call_llm must not retry when the API key is invalid."""
+        call_count = 0
+
+        async def _auth_error(**kwargs):  # type: ignore[no-untyped-def]
+            nonlocal call_count
+            call_count += 1
+            raise RuntimeError("invalid_api_key")
+
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            engine._client.chat.completions.create = _auth_error
+            result = await engine.start_story("u1", "Leo")
+
+        assert call_count == 1
+        assert "API error" in result
+
+    @pytest.mark.asyncio
+    async def test_call_llm_no_retry_on_authentication_error(self, engine: StoryEngine):
+        """_call_llm must not retry on authentication_error."""
+        call_count = 0
+
+        async def _auth_error(**kwargs):  # type: ignore[no-untyped-def]
+            nonlocal call_count
+            call_count += 1
+            raise RuntimeError("authentication_error")
+
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            engine._client.chat.completions.create = _auth_error
+            result = await engine.start_story("u1", "Mia")
+
+        assert call_count == 1
+        assert "API error" in result
+
 
 # ---------------------------------------------------------------------------
 # _format_reply unit tests

@@ -18,6 +18,7 @@ None of these counters are ever shown to the user.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
@@ -700,27 +701,51 @@ class StoryEngine:
             *[{"role": m["role"], "content": m["content"]} for m in session.get_messages()],
         ]
 
-        try:
-            response = await self._client.chat.completions.create(
-                model=self._model,
-                messages=messages,  # type: ignore[arg-type]
-                temperature=0.8,
-                max_tokens=self._max_tokens,
-            )
-            content = response.choices[0].message.content
-            return _format_reply(content.strip()) if content else ""
-        except Exception as exc:
-            exc_str = str(exc)
-            if "model_decommissioned" in exc_str or (
-                hasattr(exc, "code") and getattr(exc, "code", None) == "model_decommissioned"
-            ):
-                log.error(
-                    "Groq model '%s' has been decommissioned. "
-                    "Update the GROQ_MODEL environment variable in your .env file "
-                    "and restart the service. "
-                    "See current models at https://console.groq.com/docs/deprecations",
-                    self._model,
+        last_exc: Exception | None = None
+        delays = [1, 2]  # seconds to wait after attempt 1 and attempt 2 failures
+        for attempt in range(3):
+            try:
+                response = await self._client.chat.completions.create(
+                    model=self._model,
+                    messages=messages,  # type: ignore[arg-type]
+                    temperature=0.8,
+                    max_tokens=self._max_tokens,
                 )
-            else:
-                log.error("Groq API error: %s", exc)
-            raise LLMError(_API_ERROR_MSG) from exc
+                content = response.choices[0].message.content
+                return _format_reply(content.strip()) if content else ""
+            except Exception as exc:
+                last_exc = exc
+                exc_str = str(exc)
+                exc_code = getattr(exc, "code", None)
+
+                if "model_decommissioned" in exc_str or exc_code == "model_decommissioned":
+                    log.error(
+                        "Groq model '%s' has been decommissioned. "
+                        "Update the GROQ_MODEL environment variable in your .env file "
+                        "and restart the service. "
+                        "See current models at https://console.groq.com/docs/deprecations",
+                        self._model,
+                    )
+                    break  # non-retryable
+                elif "invalid_api_key" in exc_str or "authentication_error" in exc_str or (
+                    exc_code in ("invalid_api_key", "authentication_error")
+                ):
+                    log.error(
+                        "Groq authentication failed. "
+                        "Check that GROQ_API_KEY in your .env file is correct and active. "
+                        "Get a key at https://console.groq.com"
+                    )
+                    break  # non-retryable
+                else:
+                    if attempt < 2:
+                        log.warning(
+                            "Groq API error (attempt %d/3): %s – retrying in %ds",
+                            attempt + 1,
+                            exc,
+                            delays[attempt],
+                        )
+                        await asyncio.sleep(delays[attempt])
+                    else:
+                        log.error("Groq API error: %s", exc)
+
+        raise LLMError(_API_ERROR_MSG) from last_exc

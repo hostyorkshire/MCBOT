@@ -271,16 +271,21 @@ if [ "$install_service" = "y" ] || [ "$install_service" = "Y" ]; then
     cat > "${BOT_SERVICE_DEST}" << UNIT
 [Unit]
 Description=MeshCore CYOA Story Bot
-After=network.target
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=120
+StartLimitBurst=5
 
 [Service]
 Type=simple
 User=${BOT_USER}
 WorkingDirectory=${WORKDIR}
 EnvironmentFile=${WORKDIR}/.env
+Environment=PYTHONUNBUFFERED=1
 ExecStart=${PYTHON_BIN} ${WORKDIR}/cyoa_bot.py
-Restart=on-failure
-RestartSec=10
+Restart=always
+RestartSec=15
+TimeoutStartSec=60
 StandardOutput=journal
 StandardError=journal
 

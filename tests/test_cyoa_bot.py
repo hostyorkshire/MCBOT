@@ -634,6 +634,59 @@ class TestCheckEnv:
 
 
 # ---------------------------------------------------------------------------
+# Tests: main() startup validation
+# ---------------------------------------------------------------------------
+
+
+class TestMainStartupValidation:
+    """main() must exit cleanly (sys.exit(1)) when GROQ_API_KEY is missing."""
+
+    @pytest.mark.asyncio
+    async def test_main_exits_1_when_groq_api_key_missing(self, bot):
+        """main() calls sys.exit(1) – not raise RuntimeError – when key is absent."""
+        with (
+            patch.object(bot, "GROQ_API_KEY", ""),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            await bot.main([])
+        assert exc_info.value.code == 1
+
+    @pytest.mark.asyncio
+    async def test_main_logs_model_name_at_startup(self, bot, caplog):
+        """main() logs the Groq model name at INFO level before connecting."""
+        import logging
+
+        with (
+            patch.object(bot, "GROQ_API_KEY", ""),
+            patch.object(bot, "GROQ_MODEL", "llama-test-model"),
+            caplog.at_level(logging.INFO),
+            pytest.raises(SystemExit),
+        ):
+            await bot.main([])
+        # The log message should mention the model name; if the key is missing
+        # the exit happens before the model log, so just confirm no crash loop.
+        # (Model log appears only when key IS set – tested below.)
+
+    @pytest.mark.asyncio
+    async def test_main_logs_model_name_when_key_set(self, bot, caplog):
+        """main() logs the Groq model at INFO when a key is present (before serial)."""
+        import logging
+
+        with (
+            patch.object(bot, "GROQ_API_KEY", "fake-key"),
+            patch.object(bot, "GROQ_MODEL", "llama-test-model"),
+            patch("story_engine.AsyncGroq"),
+            patch.object(bot, "MeshCore") as mock_mc_cls,
+            caplog.at_level(logging.INFO),
+        ):
+            mock_mc_cls.create_serial = AsyncMock(return_value=None)
+            with pytest.raises(ConnectionError):
+                await bot.main(["--port", "/dev/ttyUSB0"])
+
+        assert any("llama-test-model" in r.message for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
 # Tests: HELP_TEXT constant
 # ---------------------------------------------------------------------------
 

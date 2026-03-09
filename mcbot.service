@@ -10,7 +10,10 @@
 
 [Unit]
 Description=MeshCore CYOA Story Bot
-After=network.target
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=120
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -20,10 +23,12 @@ User=cyoa
 WorkingDirectory=/home/cyoa/MCBOT
 # Environment variables are loaded from the .env file created by setup.sh
 EnvironmentFile=/home/cyoa/MCBOT/.env
+Environment=PYTHONUNBUFFERED=1
 # Use the venv Python so all requirements are available (run ./setup.sh to create .venv)
 ExecStart=/home/cyoa/MCBOT/.venv/bin/python /home/cyoa/MCBOT/cyoa_bot.py
-Restart=on-failure
-RestartSec=10
+Restart=always
+RestartSec=15
+TimeoutStartSec=60
 StandardOutput=journal
 StandardError=journal
 

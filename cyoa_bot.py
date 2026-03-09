@@ -23,6 +23,7 @@ import glob
 import logging
 import os
 import random
+import sys
 import threading
 import time
 import types
@@ -878,10 +879,9 @@ async def main(argv: list[str] | None = None) -> None:
             "GROQ_API_KEY environment variable is not set or empty. "
             "Get a free key at https://console.groq.com and add it to .env."
         )
-        raise RuntimeError(
-            "GROQ_API_KEY environment variable is not set. "
-            "Get a free key at https://console.groq.com"
-        )
+        sys.exit(1)
+
+    log.info("Using Groq model: %s", GROQ_MODEL)
 
     story_engine = StoryEngine(
         api_key=GROQ_API_KEY,
