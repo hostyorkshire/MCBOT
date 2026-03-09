@@ -62,6 +62,24 @@ if [ ! -f "${VENV_PYTHON}" ]; then
     exit 1
 fi
 
+# Verify minimum Python version (3.10+).
+if ! "${VENV_PYTHON}" -c "import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)" 2>/dev/null; then
+    PY_VER="$("${VENV_PYTHON}" --version 2>&1)"
+    echo "ERROR: Python 3.10 or newer is required, but the venv contains: ${PY_VER}" >&2
+    echo "       Re-create the venv using a supported Python version:" >&2
+    echo "         rm -rf ${REPO_DIR}/.venv && python3.10 -m venv ${REPO_DIR}/.venv" >&2
+    echo "       Then re-run setup.sh to reinstall dependencies." >&2
+    exit 1
+fi
+
+# Verify that flask-socketio is installed in the venv (requirements installed).
+if ! "${VENV_PYTHON}" -c "import flask_socketio" 2>/dev/null; then
+    echo "ERROR: flask_socketio is not installed in the venv at ${VENV_PYTHON}" >&2
+    echo "       Run: ${VENV_PYTHON} -m pip install -r ${REPO_DIR}/dashboard/requirements.txt" >&2
+    echo "       Or re-run setup.sh to reinstall all dependencies." >&2
+    exit 1
+fi
+
 # ---------------------------------------------------------------------------
 # Migrate away from the old service name (if still active)
 # ---------------------------------------------------------------------------
