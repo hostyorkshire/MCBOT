@@ -80,8 +80,8 @@ cd MCBOT
 ```
 
 > All subsequent commands in this guide assume you are inside the `MCBOT`
-> directory. Replace `/home/pi/MCBOT` in any examples with the full path
-> shown by `pwd` if your username is different.
+> directory. Replace `/home/cyoa/MCBOT` in any examples with the full path
+> shown by `pwd` if your username or install location is different.
 
 ### Step 3 – Add your user to the `dialout` group
 
@@ -280,7 +280,7 @@ When you need to replace your Groq API key (e.g. it was accidentally exposed):
    into a terminal where it might appear in shell history):
 
    ```bash
-   nano /home/pi/MCBOT/.env
+   nano /home/cyoa/MCBOT/.env
    # Replace the GROQ_API_KEY value, save and exit (Ctrl+X → Y → Enter)
    ```
 
@@ -626,7 +626,7 @@ service?"*, answer `y`.  The script will:
 2. Write `/etc/systemd/system/mcbot.service` with the exact paths filled in.
 3. Run `systemctl daemon-reload && systemctl enable --now mcbot.service`.
 
-The service file written will look like this (using `/home/pi/MCBOT` as the
+The service file written will look like this (using `/home/cyoa/MCBOT` as the
 example path — your actual paths are substituted automatically):
 
 ```ini
@@ -636,10 +636,10 @@ After=network.target
 
 [Service]
 Type=simple
-User=pi
-WorkingDirectory=/home/pi/MCBOT
-EnvironmentFile=/home/pi/MCBOT/.env
-ExecStart=/home/pi/MCBOT/.venv/bin/python /home/pi/MCBOT/cyoa_bot.py
+User=cyoa
+WorkingDirectory=/home/cyoa/MCBOT
+EnvironmentFile=/home/cyoa/MCBOT/.env
+ExecStart=/home/cyoa/MCBOT/.venv/bin/python /home/cyoa/MCBOT/cyoa_bot.py
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal
@@ -667,14 +667,14 @@ Use this if you prefer not to use the wizard.
    sudo nano /etc/systemd/system/mcbot.service
    ```
 
-   Update the following four lines (replace `pi` and `/home/pi/MCBOT` with
+   Update the following four lines (replace `cyoa` and `/home/cyoa/MCBOT` with
    your actual username and repo path):
 
    ```ini
-   User=pi
-   WorkingDirectory=/home/pi/MCBOT
-   EnvironmentFile=/home/pi/MCBOT/.env
-   ExecStart=/home/pi/MCBOT/.venv/bin/python /home/pi/MCBOT/cyoa_bot.py
+   User=cyoa
+   WorkingDirectory=/home/cyoa/MCBOT
+   EnvironmentFile=/home/cyoa/MCBOT/.env
+   ExecStart=/home/cyoa/MCBOT/.venv/bin/python /home/cyoa/MCBOT/cyoa_bot.py
    ```
 
    To find the correct absolute path, run `pwd` from inside the `MCBOT`
