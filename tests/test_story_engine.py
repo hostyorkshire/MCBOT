@@ -9,7 +9,6 @@ import pytest
 from story_engine import (
     _CHAPTER_CHOICE_SUFFIX,
     DOOM_MAX,
-    LLMError,
     MAX_CHAPTERS,
     SCENES_PER_CHAPTER,
     Session,

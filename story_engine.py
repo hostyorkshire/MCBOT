@@ -33,6 +33,7 @@ _API_ERROR_MSG = "The story pauses… (API error). Try again in a moment."
 class LLMError(Exception):
     """Raised when the Groq LLM API call fails."""
 
+
 # ---------------------------------------------------------------------------
 # Optional dashboard story log – imported lazily so the engine starts even
 # if the dashboard package is not installed.
