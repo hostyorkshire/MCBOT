@@ -5,12 +5,10 @@ from __future__ import annotations
 import json
 import os
 import threading
-import time
 
 import pytest
 
 import dashboard.active_stories as _mod
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -77,7 +75,9 @@ class TestUpsertStory:
 
     def test_upsert_multiple_different_users(self):
         for i in range(5):
-            _mod.upsert_story({"user_key": f"u{i}", "user_name": f"User{i}", "started_at": float(i)})
+            _mod.upsert_story(
+                {"user_key": f"u{i}", "user_name": f"User{i}", "started_at": float(i)}
+            )
         assert len(_mod.load_stories()) == 5
 
     def test_upsert_cap_at_max_stories(self):
@@ -120,7 +120,7 @@ class TestUpsertStory:
         def worker(i: int) -> None:
             try:
                 _mod.upsert_story({"user_key": f"u{i}", "started_at": float(i)})
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 errors.append(exc)
 
         threads = [threading.Thread(target=worker, args=(i,)) for i in range(10)]

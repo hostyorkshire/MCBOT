@@ -23,7 +23,6 @@ is kept as a graceful fallback for environments that do not support WebSockets.
 from __future__ import annotations
 
 import os
-import time
 
 from flask import Blueprint, Flask, jsonify, render_template
 from flask_socketio import SocketIO
@@ -59,9 +58,7 @@ def api_status():
 def api_stories():
     """Return last 20 story sessions (active, finished, or restarted) as JSON."""
     # Start with the persisted log of finished/restarted sessions.
-    merged: dict[str, dict] = {
-        s["user_key"]: s for s in load_stories() if s.get("user_key")
-    }
+    merged: dict[str, dict] = {s["user_key"]: s for s in load_stories() if s.get("user_key")}
     # Override with currently active sessions (most up-to-date data).
     for session in get_sessions():
         uk = session.get("user_key")
