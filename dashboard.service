@@ -1,0 +1,33 @@
+# dashboard.service – systemd unit file for the MCBOT web dashboard.
+#
+# This file is a TEMPLATE with placeholder values.  Do NOT copy it
+# directly to /etc/systemd/system/ – the paths will be wrong.
+#
+# Run setup.sh (recommended) to have it installed automatically with the
+# correct user and paths substituted:
+#
+#   sudo bash "$(pwd)/setup.sh"
+#
+# To uninstall:
+#   sudo systemctl disable --now dashboard.service
+#   sudo rm /etc/systemd/system/dashboard.service
+#   sudo systemctl daemon-reload
+
+[Unit]
+Description=MCBOT Web Dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Filled in at install time by setup.sh
+User=__USER__
+WorkingDirectory=__WORKDIR__
+ExecStart=/bin/bash __WORKDIR__/dashboard/start-dashboard.sh
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
