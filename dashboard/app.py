@@ -51,11 +51,11 @@ if _argv0 in ("flask", "flask.exe") and "run" in sys.argv[1:]:
         "    bash dashboard/start-dashboard.sh\n"
     )
 
-from flask import Blueprint, Flask, jsonify, render_template
-from flask_socketio import SocketIO
+from flask import Blueprint, Flask, jsonify, render_template  # noqa: E402
+from flask_socketio import SocketIO  # noqa: E402
 
-from dashboard.active_stories import load_stories
-from dashboard.state import STATE_FILE, get_session, get_sessions, get_status
+from dashboard.active_stories import load_stories  # noqa: E402
+from dashboard.state import STATE_FILE, get_session, get_sessions, get_status  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Blueprint – all routes live under /dashboard/
