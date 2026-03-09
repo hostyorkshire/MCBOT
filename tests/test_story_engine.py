@@ -216,6 +216,32 @@ class TestStoryEngineStory:
         assert "\n2. " in result
         assert "\n3. " in result
 
+    @pytest.mark.asyncio
+    async def test_call_llm_strips_ts_from_api_messages(self, engine: StoryEngine):
+        """Messages forwarded to the Groq API must contain only 'role' and
+        'content' – extra history fields such as 'ts' must be stripped to
+        avoid an invalid_request_error from the API endpoint."""
+        captured: list[list[dict]] = []
+
+        async def _capture_create(**kwargs):  # type: ignore[no-untyped-def]
+            captured.append(kwargs["messages"])
+            mock_choice = MagicMock()
+            mock_choice.message.content = "Scene.\n1. Go\n2. Stay\n3. Run"
+            mock_response = MagicMock()
+            mock_response.choices = [mock_choice]
+            return mock_response
+
+        engine._client.chat.completions.create = _capture_create
+        await engine.start_story("u1", "Hannah")
+        await engine.advance_story("u1", "1")
+
+        assert captured, "No API calls were captured"
+        for call_messages in captured:
+            for msg in call_messages:
+                assert set(msg.keys()) <= {"role", "content"}, (
+                    f"Unexpected keys in API message: {set(msg.keys()) - {'role', 'content'}}"
+                )
+
 
 # ---------------------------------------------------------------------------
 # _format_reply unit tests
