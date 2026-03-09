@@ -80,6 +80,14 @@ if ! "${VENV_PYTHON}" -c "import flask_socketio" 2>/dev/null; then
     exit 1
 fi
 
+# Verify that eventlet is installed (required for async_mode="eventlet").
+if ! "${VENV_PYTHON}" -c "import eventlet" 2>/dev/null; then
+    echo "ERROR: eventlet is not installed in the venv at ${VENV_PYTHON}" >&2
+    echo "       Run: ${VENV_PYTHON} -m pip install -r ${REPO_DIR}/dashboard/requirements.txt" >&2
+    echo "       Or re-run setup.sh to reinstall all dependencies." >&2
+    exit 1
+fi
+
 # ---------------------------------------------------------------------------
 # Migrate away from the old service names (if still active)
 # ---------------------------------------------------------------------------
