@@ -23,6 +23,7 @@ import glob
 import logging
 import os
 import random
+import threading
 import time
 import types
 
@@ -37,6 +38,8 @@ from utils import chunk_message
 # if the dashboard package is not installed.
 # ---------------------------------------------------------------------------
 try:
+    from dashboard.app import create_app as _dashboard_create_app
+    from dashboard.app import socketio as _dashboard_socketio
     from dashboard.state import write_state as _write_dashboard_state
 
     _DASHBOARD_ENABLED = True
@@ -45,6 +48,39 @@ except ImportError:  # pragma: no cover – optional dependency
 
     def _write_dashboard_state(_data: dict) -> None:  # type: ignore[misc]
         """No-op fallback when the dashboard package is unavailable."""
+
+
+def _start_dashboard_server(*, host: str = "0.0.0.0", port: int = 5000) -> None:
+    """Launch the Flask-SocketIO dashboard in a background daemon thread.
+
+    Binding to ``host="0.0.0.0"`` makes the dashboard reachable on *all*
+    network interfaces (LAN, Wi-Fi, …) at ``http://<machine-ip>:5000/dashboard/``.
+    Using a daemon thread means the server shuts down automatically when the
+    main bot process exits – no separate cleanup is needed.
+    """
+    if not _DASHBOARD_ENABLED:
+        return
+
+    _debug = os.getenv("FLASK_DEBUG", "0") == "1"
+    _app = _dashboard_create_app()
+
+    def _run() -> None:
+        try:
+            # host="0.0.0.0" binds to all interfaces so the dashboard is
+            # accessible from other machines on the local network.
+            _dashboard_socketio.run(_app, host=host, port=port, debug=_debug, use_reloader=False)
+        except Exception as exc:  # pragma: no cover
+            log.error("Dashboard server failed to start: %s", exc)
+
+    t = threading.Thread(target=_run, name="dashboard-server", daemon=True)
+    t.start()
+    log.info(
+        "Dashboard server started on port %d – open http://localhost:%d/dashboard/ locally "
+        "or http://<this-machine-ip>:%d/dashboard/ from another device on the LAN",
+        port,
+        port,
+        port,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1010,6 +1046,11 @@ async def main(argv: list[str] | None = None) -> None:
     _background_tasks: set[asyncio.Task] = set()  # type: ignore[type-arg]
 
     if _DASHBOARD_ENABLED:
+        # Start the Flask dashboard web server in a background daemon thread.
+        # Binds to 0.0.0.0:5000 so the dashboard is reachable from any device
+        # on the local network at http://<machine-ip>:5000/dashboard/
+        _start_dashboard_server(host="0.0.0.0", port=5000)
+
         _t = asyncio.ensure_future(_dashboard_state_writer())
         _background_tasks.add(_t)
         _t.add_done_callback(_background_tasks.discard)
