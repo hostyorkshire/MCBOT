@@ -142,7 +142,7 @@ fi
 # ---------------------------------------------------------------------------
 
 printf "\n"
-read -rp "Would you like to install and enable both systemd services (mcbot + mcbot-dashboard) for auto-start on reboot? (y/N): " install_service
+read -rp "Would you like to install and enable both systemd services (mcbot + dashboard) for auto-start on reboot? (y/N): " install_service
 if [ "$install_service" = "y" ] || [ "$install_service" = "Y" ]; then
 
     # Require root/sudo for systemd installation
@@ -216,55 +216,42 @@ UNIT
     systemctl enable --now mcbot.service
     echo "mcbot.service installed and enabled."
 
-    # --- Install mcbot-dashboard.service (web dashboard) ---
-    DASHBOARD_SERVICE_DEST="/etc/systemd/system/mcbot-dashboard.service"
+    # --- Install dashboard.service (web dashboard) ---
+    DASHBOARD_SERVICE_DEST="/etc/systemd/system/dashboard.service"
     echo ""
     echo "Installing ${DASHBOARD_SERVICE_DEST} ..."
     echo "  User:             ${BOT_USER}"
     echo "  WorkingDirectory: ${WORKDIR}"
-    echo "  ExecStart:        ${PYTHON_BIN} -m dashboard.app"
+    echo "  ExecStart:        /bin/bash ${WORKDIR}/dashboard/start-dashboard.sh"
 
-    # Migrate away from the old service name (if still active).
-    if systemctl is-active --quiet dashboard-dashboard.service 2>/dev/null; then
-        echo "Stopping legacy dashboard-dashboard service..."
-        systemctl stop dashboard-dashboard.service || true
-    fi
-    if systemctl is-enabled --quiet dashboard-dashboard.service 2>/dev/null; then
-        echo "Disabling legacy dashboard-dashboard service..."
-        systemctl disable dashboard-dashboard.service || true
-    fi
-    if [ -f /etc/systemd/system/dashboard-dashboard.service ]; then
-        rm -f /etc/systemd/system/dashboard-dashboard.service
-    fi
+    # Migrate away from legacy service names if they are still present.
+    for _legacy_svc in dashboard-dashboard.service mcbot-dashboard.service; do
+        if systemctl is-active --quiet "${_legacy_svc}" 2>/dev/null; then
+            echo "Stopping legacy ${_legacy_svc} service..."
+            systemctl stop "${_legacy_svc}" || true
+        fi
+        if systemctl is-enabled --quiet "${_legacy_svc}" 2>/dev/null; then
+            echo "Disabling legacy ${_legacy_svc} service..."
+            systemctl disable "${_legacy_svc}" || true
+        fi
+        if [ -f "/etc/systemd/system/${_legacy_svc}" ]; then
+            rm -f "/etc/systemd/system/${_legacy_svc}"
+        fi
+    done
 
     # Stop the current service (if running) before replacing the unit file.
-    systemctl stop mcbot-dashboard.service 2>/dev/null || true
+    systemctl stop dashboard.service 2>/dev/null || true
 
-    # Write the unit file with actual paths substituted in
-    cat > "${DASHBOARD_SERVICE_DEST}" << UNIT
-[Unit]
-Description=MCBOT Web Dashboard
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-User=${BOT_USER}
-WorkingDirectory=${WORKDIR}
-ExecStart=${PYTHON_BIN} -m dashboard.app
-Restart=on-failure
-RestartSec=10
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
-UNIT
+    # Copy dashboard.service template with actual paths substituted in.
+    sed -e "s|__USER__|${BOT_USER}|g" \
+        -e "s|__WORKDIR__|${WORKDIR}|g" \
+        "${WORKDIR}/dashboard.service" > "${DASHBOARD_SERVICE_DEST}"
 
     chmod 644 "${DASHBOARD_SERVICE_DEST}"
     systemctl daemon-reload
-    systemctl enable --now mcbot-dashboard.service
-    echo "mcbot-dashboard.service installed and enabled."
+    systemctl enable dashboard.service
+    systemctl start dashboard.service
+    echo "dashboard.service installed and enabled."
 
     # --- Post-install status for both services ---
     echo ""
@@ -273,18 +260,18 @@ UNIT
     echo "======================================================================="
     systemctl status mcbot.service --no-pager --lines=5 || true
     echo ""
-    systemctl status mcbot-dashboard.service --no-pager --lines=5 || true
+    systemctl status dashboard.service --no-pager --lines=5 || true
     echo ""
     printf "Both services are enabled and will start automatically on every reboot.\n"
     echo ""
     echo "  Bot:              sudo systemctl status mcbot"
     echo "  Bot logs:         sudo journalctl -u mcbot -f"
     echo "  Restart bot:      sudo systemctl restart mcbot"
-    echo "  Dashboard:        sudo systemctl status mcbot-dashboard"
-    echo "  Dashboard logs:   sudo journalctl -u mcbot-dashboard -f"
-    echo "  Restart dashboard:sudo systemctl restart mcbot-dashboard"
+    echo "  Dashboard:        sudo systemctl status dashboard"
+    echo "  Dashboard logs:   sudo journalctl -u dashboard -f"
+    echo "  Restart dashboard: sudo systemctl restart dashboard"
     echo "  Stop bot:         sudo systemctl stop mcbot"
-    echo "  Stop dashboard:   sudo systemctl stop mcbot-dashboard"
+    echo "  Stop dashboard:   sudo systemctl stop dashboard"
 else
     # Print manual next steps when skipping service installation
     printf "\nNext steps:\n1. Activate the virtual environment: source .venv/bin/activate\n2. Run: python cyoa_bot.py\n   (or without activating: .venv/bin/python cyoa_bot.py)\n"
@@ -339,7 +326,7 @@ echo "    (or: sudo systemctl start mcbot  — if service was installed)"
 echo ""
 echo "  Start the web dashboard (manual):"
 echo "    ./dashboard.sh"
-echo "    (or: sudo systemctl start mcbot-dashboard  — if service was installed)"
+echo "    (or: sudo systemctl start dashboard  — if service was installed)"
 echo ""
 echo "  Then open your browser at:  http://localhost:5000"
 echo ""
