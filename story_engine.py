@@ -379,7 +379,7 @@ class StoryEngine:
         """
         result = []
         for s in self._sessions.values():
-            result.append(self._session_to_dict(s))
+ main
         return result
 
     def _session_to_dict(self, session: Session) -> dict:

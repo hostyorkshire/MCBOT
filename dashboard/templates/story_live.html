@@ -45,9 +45,18 @@
           <div class="stat-value">{{ session.scene_in_chapter }}</div>
         </div>
 
-        <div class="stat-box">
+        <div class="stat-box doom-gauge-box">
           <div class="stat-label">Doom</div>
-          <div class="stat-value">{{ session.doom }}</div>
+          <svg class="doom-gauge"
+               viewBox="0 0 120 68"
+               aria-label="Doom gauge: {{ session.doom }} of {{ session.doom_max | default(500) }}"
+               role="img"
+               data-doom="{{ session.doom }}"
+               data-doom-max="{{ session.doom_max | default(500) }}">
+          </svg>
+          <div class="stat-value doom-gauge-value" aria-live="polite">
+            <span id="doom-display">{{ session.doom }} / {{ session.doom_max | default(500) }}</span>
+          </div>
         </div>
 
         <div class="stat-box">
@@ -102,6 +111,9 @@
 
   </div><!-- /.page-wrapper -->
 
+  <!-- Socket.IO client (served by Flask-SocketIO) -->
+  <script src="/socket.io/socket.io.js"></script>
+
   <script>
     // Format the started_at Unix timestamp as a human-readable local time.
     const startedEl = document.getElementById("stat-started");
@@ -110,6 +122,195 @@
       if (!isNaN(ts) && ts > 0) {
         startedEl.textContent = new Date(ts * 1000).toLocaleString();
       }
+    }
+
+    // ── Constants ──────────────────────────────────────────────────
+    // USER_KEY matches the value already present in the page URL
+    // (/dashboard/story/<user_key>), so embedding it here is not a
+    // new exposure of sensitive data.
+    const USER_KEY      = {{ session.user_key | tojson }};
+    const STORIES_URL   = "{{ url_for('dashboard.api_stories') }}";
+    const POLL_INTERVAL = 10_000;  // fallback polling interval (10 seconds)
+
+    // ── Doom arch gauge ────────────────────────────────────────────
+    /**
+     * Render or update the doom arch gauge inside an SVG element.
+     *
+     * The gauge is a filled semicircular arc that grows from left (low doom)
+     * to right (max doom).  Arc colour transitions:
+     *   green  (<50 %)  →  amber  (50–80 %)  →  red  (>80 %)
+     *
+     * @param {SVGElement} svg     - The <svg class="doom-gauge"> element.
+     * @param {number}     doom    - Current doom value.
+     * @param {number}     doomMax - Maximum doom value (peril finale threshold).
+     */
+    function updateDoomGauge(svg, doom, doomMax) {
+      const cx = 60, cy = 62, r = 50;
+      const pct = doomMax > 0 ? Math.min(doom / doomMax, 1) : 0;
+
+      // Colour thresholds
+      let colour;
+      if (pct < 0.5) {
+        colour = "#22c55e"; // green
+      } else if (pct < 0.8) {
+        colour = "#f59e0b"; // amber
+      } else {
+        colour = "#ef4444"; // red
+      }
+
+      // ── Background track ──────────────────────────────────────────
+      let bgArc = svg.querySelector(".doom-gauge__track");
+      if (!bgArc) {
+        bgArc = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        bgArc.classList.add("doom-gauge__track");
+        svg.appendChild(bgArc);
+      }
+      bgArc.setAttribute("d", `M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`);
+      bgArc.setAttribute("fill", "none");
+      bgArc.setAttribute("stroke", "#e5e7eb");
+      bgArc.setAttribute("stroke-width", "10");
+      bgArc.setAttribute("stroke-linecap", "round");
+
+      // ── Filled arc ────────────────────────────────────────────────
+      let fillArc = svg.querySelector(".doom-gauge__fill");
+      if (!fillArc) {
+        fillArc = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        fillArc.classList.add("doom-gauge__fill");
+        svg.appendChild(fillArc);
+      }
+      if (pct > 0) {
+        let d;
+        if (pct >= 1) {
+          // Full semicircle: route via the midpoint to avoid a degenerate path
+          // when start and end coordinates are identical.
+          // SVG arc syntax: A rx ry x-rotation large-arc-flag sweep-flag x y
+          // (0 0 1 = no rotation, small arc, clockwise direction)
+          d = `M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx} ${cy - r} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`;
+        } else {
+          // Partial arc from left endpoint clockwise to the fill point.
+          // angle goes from π (left) toward 0 (right) as pct increases.
+          const angle = Math.PI * (1 - pct);
+          const ex = cx + r * Math.cos(angle);
+          const ey = cy - r * Math.sin(angle);
+          // large-arc-flag is always 0 because the fill arc never exceeds 180°.
+          // SVG arc syntax: A rx ry x-rotation large-arc-flag sweep-flag x y
+          // (0 0 1 = no rotation, small arc, clockwise direction)
+          d = `M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${ex.toFixed(2)} ${ey.toFixed(2)}`;
+        }
+        fillArc.setAttribute("d", d);
+        fillArc.setAttribute("fill", "none");
+        fillArc.setAttribute("stroke", colour);
+        fillArc.setAttribute("stroke-width", "10");
+        fillArc.setAttribute("stroke-linecap", "round");
+        fillArc.style.display = "";
+      } else {
+        fillArc.style.display = "none";
+      }
+
+      // ── Text label inside the arch ─────────────────────────────────
+      let label = svg.querySelector(".doom-gauge__label");
+      if (!label) {
+        label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        label.classList.add("doom-gauge__label");
+        svg.appendChild(label);
+      }
+      label.setAttribute("x", cx);
+      label.setAttribute("y", cy - 14);
+      label.setAttribute("text-anchor", "middle");
+      label.setAttribute("dominant-baseline", "middle");
+      label.setAttribute("font-size", "11");
+      label.setAttribute("font-weight", "900");
+      label.setAttribute("fill", colour);
+      label.setAttribute("font-family", "Trebuchet MS, Comic Sans MS, sans-serif");
+      label.textContent = `${doom} / ${doomMax}`;
+
+      // Keep the accessible aria-label and the HTML readout in sync.
+      svg.setAttribute(
+        "aria-label",
+        `Doom gauge: ${doom} of ${doomMax} (${Math.round(pct * 100)}%)`
+      );
+      const display = document.getElementById("doom-display");
+      if (display) {
+        display.textContent = `${doom} / ${doomMax}`;
+      }
+    }
+
+    // ── Initial render ─────────────────────────────────────────────
+    const gaugeEl = document.querySelector(".doom-gauge");
+    if (gaugeEl) {
+      const initDoom    = parseInt(gaugeEl.dataset.doom, 10) || 0;
+      const initDoomMax = parseInt(gaugeEl.dataset.doomMax, 10) || 500;
+      updateDoomGauge(gaugeEl, initDoom, initDoomMax);
+    }
+
+    // ── Apply a session update from API data ───────────────────────
+    /**
+     * Find the session matching USER_KEY in an array of story objects and,
+     * if found, re-render the doom gauge and doom display text.
+     *
+     * @param {Array} stories - Array of session objects from the stories API.
+     */
+    function applyStoriesUpdate(stories) {
+      if (!Array.isArray(stories)) return;
+      const sess = stories.find(s => s.user_key === USER_KEY);
+      if (!sess) return;
+      const svg = document.querySelector(".doom-gauge");
+      if (!svg) return;
+      const doom    = typeof sess.doom     === "number" ? sess.doom     : 0;
+      const doomMax = typeof sess.doom_max === "number" ? sess.doom_max : 500;
+      updateDoomGauge(svg, doom, doomMax);
+    }
+
+    // ── Polling fallback (used when Socket.IO is unavailable) ──────
+    let _pollingTimer = null;
+
+    function startPolling() {
+      if (_pollingTimer !== null) return;
+      _pollingTimer = setInterval(async () => {
+        try {
+          const resp = await fetch(STORIES_URL);
+          if (!resp.ok) return;
+          const stories = await resp.json();
+          applyStoriesUpdate(stories);
+        } catch (err) { console.debug("Story polling failed:", err); }
+      }, POLL_INTERVAL);
+    }
+
+    function stopPolling() {
+      if (_pollingTimer !== null) {
+        clearInterval(_pollingTimer);
+        _pollingTimer = null;
+      }
+    }
+
+    // ── Socket.IO real-time updates ────────────────────────────────
+    if (typeof io !== "undefined") {
+      const socket = io({ transports: ["websocket", "polling"] });
+
+      socket.on("connect", function () {
+        stopPolling();
+        console.info("Story live: Socket.IO connected – live updates enabled.");
+      });
+
+      socket.on("disconnect", function () {
+        startPolling();
+        console.warn("Story live: Socket.IO disconnected – falling back to polling.");
+      });
+
+      socket.on("story_update", function (payload) {
+        if (payload && Array.isArray(payload.stories)) {
+          applyStoriesUpdate(payload.stories);
+        }
+      });
+
+      socket.on("connect_error", function (err) {
+        startPolling();
+        console.warn("Story live: Socket.IO unavailable – using polling.", err);
+      });
+    } else {
+      // Socket.IO script not available – fall back to polling.
+      console.warn("Story live: Socket.IO not available – using polling.");
+      startPolling();
     }
   </script>
 
