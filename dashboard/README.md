@@ -10,7 +10,8 @@ A local Flask web dashboard that shows live bot status and active story sessions
 |---|---|
 | Bot status | Running / idle / offline, uptime, error count |
 | Active sessions | User name, genre, chapter, scene, state |
-| Auto-refresh | Updates every 10 seconds (or manually with the Refresh button) |
+| **Real-time live updates** | Instant push via Socket.IO whenever `bot_state.json` changes |
+| Fallback polling | Updates every 10 seconds if WebSockets are unavailable |
 | Styled UI | Matches the public-facing website's 70s lava-lamp theme |
 
 ---
@@ -18,7 +19,7 @@ A local Flask web dashboard that shows live bot status and active story sessions
 ## Requirements
 
 - Python 3.10+
-- Flask 3.x (see `dashboard/requirements.txt`)
+- Flask 3.x and Flask-SocketIO 5.x (see `dashboard/requirements.txt`)
 
 ---
 
@@ -30,6 +31,8 @@ A local Flask web dashboard that shows live bot status and active story sessions
 # From the repository root:
 pip install -r dashboard/requirements.txt
 ```
+
+This installs both `flask` and `flask-socketio` (plus its transport libraries).
 
 > The main bot dependencies (`requirements.txt`) are separate; install both if
 > you are running the bot and the dashboard on the same machine.
@@ -47,6 +50,10 @@ Or with Flask's development server (enables auto-reload):
 FLASK_DEBUG=1 flask --app dashboard.app run --debug --host=0.0.0.0
 ```
 
+> **Note:** When using `flask run` directly (instead of `python -m dashboard.app`),
+> the Socket.IO background watcher thread that broadcasts live updates is started
+> automatically via the application factory.  Both launch methods work the same way.
+
 Open **http://localhost:5000/dashboard/** in your browser on the host machine, or
 use the host machine's IP address to access the dashboard from another device on
 the same network (e.g. **http://192.168.1.10:5000/dashboard/**).
@@ -55,6 +62,40 @@ the same network (e.g. **http://192.168.1.10:5000/dashboard/**).
 > by *any* device on the same network.  This is intentional for local
 > development but **not safe for production** without additional authentication
 > or firewall restrictions.  Do not expose this port to the internet.
+
+---
+
+## Real-time updates (Socket.IO)
+
+The dashboard uses [Flask-SocketIO](https://flask-socketio.readthedocs.io/) to
+push live data to connected browsers the instant `bot_state.json` changes on
+disk.
+
+### How it works
+
+1. A lightweight background thread inside the Flask process polls
+   `bot_state.json` every second for file-modification-time changes.
+2. When a change is detected the thread reads the new state and emits a
+   `story_update` Socket.IO event to **all** connected clients.
+3. Each browser receives the event and re-renders the status card and stories
+   table immediately – no page reload required.
+
+### Fallback behaviour
+
+If a client's browser does not support WebSockets, or if Socket.IO fails to
+connect for any reason, the page automatically falls back to the original
+10-second HTTP polling loop.  The REST API endpoints
+(`/dashboard/api/status` and `/dashboard/api/stories`) remain fully functional
+regardless of WebSocket support.
+
+### Socket.IO event reference
+
+| Event | Direction | Payload |
+|---|---|---|
+| `story_update` | Server → Client | `{ "status": {...}, "stories": [...] }` |
+
+The `status` object matches the `/dashboard/api/status` response schema and
+`stories` matches the `/dashboard/api/stories` response schema.
 
 ---
 
@@ -187,24 +228,27 @@ machine running the dashboard (e.g. `http://192.168.1.10:5000/dashboard/`).
 ```
 dashboard/
 ├── __init__.py                    # Package marker
-├── app.py                         # Flask application + API endpoints
+├── app.py                         # Flask application + API endpoints + Socket.IO setup
 ├── state.py                       # JSON state file read/write helpers
 ├── bot_state.json                 # Runtime state file (written by the bot; gitignored)
-├── requirements.txt               # Flask dependency
+├── requirements.txt               # Flask + Flask-SocketIO dependencies
 ├── README.md                      # This file
 ├── dashboard-dashboard.service    # systemd unit file for automatic startup
 ├── install-dashboard-service.sh   # Convenience script to install the service
 ├── static/
 │   └── style.css                  # Dashboard stylesheet (lava-lamp theme)
 └── templates/
-    └── index.html                 # Dashboard HTML page
+    └── index.html                 # Dashboard HTML page (Socket.IO client included)
 ```
 
 ---
 
 ## Customisation
 
-- **Refresh interval** – change `AUTO_REFRESH_MS` in `templates/index.html`.
+- **Fallback polling interval** – change `AUTO_REFRESH_MS` in `templates/index.html`
+  (only used when the WebSocket connection is unavailable).
+- **Live-update poll frequency** – change `poll_interval` in `_state_watcher` inside
+  `app.py` (how often the server checks `bot_state.json` for changes; default 1 s).
 - **State file location** – override `STATE_FILE` in `state.py` or set the
   `DASHBOARD_STATE_FILE` environment variable (future extension point).
 - **Add more stats** – extend the `write_state` call in `cyoa_bot.py` and add

@@ -87,12 +87,15 @@
 
   </div><!-- /.page-wrapper -->
 
+  <!-- Socket.IO client (served by Flask-SocketIO) -->
+  <script src="/socket.io/socket.io.js"></script>
+
   <script>
     // ── Constants ──────────────────────────────────────────────────
     const STATUS_URL      = "{{ url_for('dashboard.api_status') }}";
     const STORIES_URL     = "{{ url_for('dashboard.api_stories') }}";
     const STORY_BASE_URL  = "{{ url_for('dashboard.story_live', user_key='__KEY__') }}";
-    const AUTO_REFRESH_MS = 10_000;  // refresh every 10 s
+    const AUTO_REFRESH_MS = 10_000;  // fallback polling interval (10 s)
 
     // ── Helpers ────────────────────────────────────────────────────
     function fmtDate(ts) {
@@ -177,16 +180,22 @@
         .replace(/"/g, "&quot;");
     }
 
-    // ── Main refresh ───────────────────────────────────────────────
+    // ── Apply a full update from either live event or poll ─────────
+    function applyUpdate(status, stories) {
+      const banner = document.getElementById("error-banner");
+      renderStatus(status, stories.length);
+      renderStories(stories);
+      banner.classList.remove("visible");
+      document.getElementById("last-updated").textContent =
+        "Updated " + new Date().toLocaleTimeString();
+    }
+
+    // ── Main refresh (used for initial load and fallback polling) ──
     async function fetchAll() {
       const banner = document.getElementById("error-banner");
       try {
         const [status, stories] = await Promise.all([fetchStatus(), fetchStories()]);
-        renderStatus(status, stories.length);
-        renderStories(stories);
-        banner.classList.remove("visible");
-        document.getElementById("last-updated").textContent =
-          "Updated " + new Date().toLocaleTimeString();
+        applyUpdate(status, stories);
       } catch (err) {
         banner.classList.add("visible");
         document.getElementById("last-updated").textContent = "Update failed";
@@ -194,9 +203,66 @@
       }
     }
 
-    // ── Auto-refresh ───────────────────────────────────────────────
+    // ── Socket.IO real-time updates ────────────────────────────────
+    let liveConnected = false;
+    let pollingTimer  = null;
+
+    function startPolling() {
+      if (pollingTimer === null) {
+        pollingTimer = setInterval(fetchAll, AUTO_REFRESH_MS);
+      }
+    }
+
+    function stopPolling() {
+      if (pollingTimer !== null) {
+        clearInterval(pollingTimer);
+        pollingTimer = null;
+      }
+    }
+
+    if (typeof io !== "undefined") {
+      const socket = io({ transports: ["websocket", "polling"] });
+
+      socket.on("connect", function () {
+        liveConnected = true;
+        // Stop the fallback polling loop – live events take over.
+        stopPolling();
+        document.getElementById("last-updated").textContent =
+          "Live updates active";
+        console.info("Dashboard: Socket.IO connected – live updates enabled.");
+      });
+
+      socket.on("disconnect", function () {
+        liveConnected = false;
+        // Fall back to polling while disconnected.
+        startPolling();
+        console.warn("Dashboard: Socket.IO disconnected – falling back to polling.");
+      });
+
+      socket.on("story_update", function (payload) {
+        if (payload && payload.status && Array.isArray(payload.stories)) {
+          applyUpdate(payload.status, payload.stories);
+        } else {
+          // Payload missing or malformed – fetch manually.
+          fetchAll();
+        }
+      });
+
+      socket.on("connect_error", function (err) {
+        if (!liveConnected) {
+          // Could not establish WebSocket at all; keep polling.
+          startPolling();
+          console.warn("Dashboard: Socket.IO unavailable – using polling.", err);
+        }
+      });
+    } else {
+      // Socket.IO script not available (e.g. JS disabled path or old browser).
+      console.warn("Dashboard: Socket.IO not available – using polling.");
+      startPolling();
+    }
+
+    // ── Initial data load (always runs regardless of WS support) ───
     fetchAll();
-    setInterval(fetchAll, AUTO_REFRESH_MS);
   </script>
 
 </body>
