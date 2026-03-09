@@ -91,6 +91,12 @@ _CHAPTER_CHOICE_SUFFIX: str = "\n1. Continue\n2. Pause\n3. End"
 #: The suffix without its leading newline, used when it heads a fresh line.
 _CHAPTER_CHOICE_BODY: str = _CHAPTER_CHOICE_SUFFIX.lstrip("\n")
 
+#: Fallback choices appended to a normal scene reply when the LLM omits them.
+_STORY_FALLBACK_CHOICES: str = "\n1. Continue\n2. Try something else\n3. Explore"
+
+#: Fallback choices appended to a finale reply when the LLM omits them.
+_FINALE_FALLBACK_CHOICES: str = "\n[END]\n1. Start over\n2. New adventure\n3. Quit"
+
 # ---------------------------------------------------------------------------
 # Regex helpers for normalising LLM choice output.
 # ---------------------------------------------------------------------------
@@ -140,6 +146,27 @@ def _format_reply(text: str) -> str:
         return f"{prefix}1. {c1}\n2. {c2}\n3. {c3}"
 
     return text
+
+
+def _ensure_choices(reply: str, fallback: str = _STORY_FALLBACK_CHOICES) -> str:
+    """Return *reply* unchanged when it already contains numbered choices.
+
+    When the LLM omits the required ``1. / 2. / 3.`` choices block, *fallback*
+    is appended so the user always has options to select from.
+
+    Args:
+        reply: Post-processed LLM reply (output of :func:`_format_reply`).
+        fallback: Choice block to append when none is detected.  Defaults to
+            :data:`_STORY_FALLBACK_CHOICES` for normal scenes; pass
+            :data:`_FINALE_FALLBACK_CHOICES` for end-of-story replies.
+
+    Returns:
+        *reply* with a guaranteed choices block.
+    """
+    if re.search(r"(?:^|\n)1[.)]\s", reply):
+        return reply
+    log.warning("LLM reply missing choices – appending fallback: %r", reply[:60])
+    return reply + fallback
 
 
 # ---------------------------------------------------------------------------
@@ -437,6 +464,7 @@ class StoryEngine:
         )
         session.add_message("user", prompt)
         reply = await self._call_llm(session)
+        reply = _ensure_choices(reply)
         session.add_message("assistant", reply)
         log.info(
             "Started new story for %s (%s) in genre '%s'",
@@ -494,6 +522,7 @@ class StoryEngine:
                 session.awaiting_chapter_choice = False
                 session.add_message("user", "Continue the adventure.")
                 reply = await self._call_llm(session)
+                reply = _ensure_choices(reply)
                 session.add_message("assistant", reply)
                 log.info(
                     "Chapter resumed for %s (chapter=%d)",
@@ -548,6 +577,7 @@ class StoryEngine:
         if session.doom >= DOOM_MAX:
             session.add_message("user", f"I choose: {choice_text}.")
             reply = await self._call_llm(session, system_prompt=_PERIL_FINALE_SYSTEM)
+            reply = _ensure_choices(reply, _FINALE_FALLBACK_CHOICES)
             session.add_message("assistant", reply)
             session.finished = True
             _log_story(self._session_to_dict(session))
@@ -570,6 +600,7 @@ class StoryEngine:
             if session.chapter >= MAX_CHAPTERS:
                 session.add_message("user", f"I choose: {choice_text}.")
                 reply = await self._call_llm(session, system_prompt=_PERIL_FINALE_SYSTEM)
+                reply = _ensure_choices(reply, _FINALE_FALLBACK_CHOICES)
                 session.add_message("assistant", reply)
                 session.finished = True
                 _log_story(self._session_to_dict(session))
@@ -605,6 +636,7 @@ class StoryEngine:
         # --- Normal scene advance ---
         session.add_message("user", f"I choose option {choice_text}.")
         reply = await self._call_llm(session)
+        reply = _ensure_choices(reply)
         session.add_message("assistant", reply)
         return reply
 

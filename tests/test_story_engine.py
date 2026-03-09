@@ -443,3 +443,157 @@ class TestLogStoryCalled:
         call_arg = mock_log.call_args[0][0]
         assert call_arg["user_key"] == "u1"
         assert call_arg["finished"] is True
+
+
+# ---------------------------------------------------------------------------
+# _ensure_choices unit tests
+# ---------------------------------------------------------------------------
+
+
+from story_engine import (  # noqa: E402 - import after fixtures/helpers
+    _FINALE_FALLBACK_CHOICES,
+    _STORY_FALLBACK_CHOICES,
+    _ensure_choices,
+)
+
+
+class TestEnsureChoices:
+    """_ensure_choices must guarantee a choices block is always present."""
+
+    def test_reply_with_choices_unchanged(self):
+        text = "You enter the cave.\n1. Go left\n2. Go right\n3. Wait"
+        assert _ensure_choices(text) == text
+
+    def test_reply_with_paren_choices_unchanged(self):
+        text = "A wolf growls.\n1) Run\n2) Fight\n3) Hide"
+        assert _ensure_choices(text) == text
+
+    def test_reply_without_choices_gets_story_fallback(self):
+        text = "Darkness surrounds you."
+        result = _ensure_choices(text)
+        assert result.startswith(text)
+        assert "\n1." in result or "\n1)" in result
+
+    def test_default_fallback_is_story_fallback(self):
+        text = "No choices here."
+        result = _ensure_choices(text)
+        assert result == text + _STORY_FALLBACK_CHOICES
+
+    def test_custom_fallback_used_when_provided(self):
+        text = "Your story ends here."
+        result = _ensure_choices(text, _FINALE_FALLBACK_CHOICES)
+        assert result == text + _FINALE_FALLBACK_CHOICES
+
+    def test_empty_string_gets_fallback(self):
+        result = _ensure_choices("")
+        assert _STORY_FALLBACK_CHOICES in result
+
+    def test_reply_with_end_tag_and_choices_unchanged(self):
+        text = "The hero falls.\n[END]\n1. Start over\n2. New adventure\n3. Quit"
+        assert _ensure_choices(text) == text
+
+    def test_reply_with_end_tag_but_no_choices_gets_fallback(self):
+        text = "The hero falls.\n[END]"
+        result = _ensure_choices(text, _FINALE_FALLBACK_CHOICES)
+        assert result == text + _FINALE_FALLBACK_CHOICES
+
+    def test_choices_only_at_start_of_string_unchanged(self):
+        """Choices at the very start of the string (no preceding narrative) must not
+        trigger the fallback – they are already valid choices."""
+        text = "1. Go left\n2. Go right\n3. Wait"
+        assert _ensure_choices(text) == text
+
+
+# ---------------------------------------------------------------------------
+# Story engine – options always present after LLM advances
+# ---------------------------------------------------------------------------
+
+
+class TestEnsureChoicesIntegration:
+    """Verify the story engine always returns choices even when the LLM omits them."""
+
+    @pytest.mark.asyncio
+    async def test_start_story_without_llm_choices_gets_fallback(self):
+        """start_story appends fallback choices when the LLM omits them."""
+        with patch("story_engine.AsyncGroq") as mock_cls:
+            mock_cls.return_value = _make_mock_groq()
+            eng = StoryEngine(api_key="fake-key")
+        eng._client = _make_mock_groq("You wake in a dark cave.")  # no choices
+        result = await eng.start_story("u1", "Alice")
+        assert "1." in result, "start_story must always return a choices block"
+
+    @pytest.mark.asyncio
+    async def test_advance_normal_scene_without_llm_choices_gets_fallback(self):
+        """advance_story (normal scene) appends fallback choices when LLM omits them."""
+        with patch("story_engine.AsyncGroq") as mock_cls:
+            mock_cls.return_value = _make_mock_groq()
+            eng = StoryEngine(api_key="fake-key")
+        # Start with a good response to create the session
+        eng._client = _make_mock_groq("Opening scene.\n1. A\n2. B\n3. C")
+        await eng.start_story("u1", "Bob")
+        # Advance with an LLM that omits choices
+        eng._client = _make_mock_groq("The path ahead is dark.")
+        result = await eng.advance_story("u1", "1")
+        assert "1." in result, "advance_story must always return a choices block"
+
+    @pytest.mark.asyncio
+    async def test_advance_chapter_continue_without_llm_choices_gets_fallback(self):
+        """advance_story (chapter continue) appends fallback choices when LLM omits them."""
+        with patch("story_engine.AsyncGroq") as mock_cls:
+            mock_cls.return_value = _make_mock_groq()
+            eng = StoryEngine(api_key="fake-key")
+        session = Session("u1", "Hero", max_history=10)
+        session.awaiting_chapter_choice = True
+        eng._sessions["u1"] = session
+        # LLM returns a scene without choices
+        eng._client = _make_mock_groq("A new chapter begins.")
+        result = await eng.advance_story("u1", "1")  # Continue
+        assert "1." in result, "chapter-continue must always return a choices block"
+
+    @pytest.mark.asyncio
+    async def test_doom_finale_without_llm_choices_gets_finale_fallback(self):
+        """doom finale appends end-of-story fallback choices when LLM omits them."""
+        with patch("story_engine.AsyncGroq") as mock_cls:
+            mock_cls.return_value = _make_mock_groq()
+            eng = StoryEngine(api_key="fake-key")
+        session = Session("u1", "Hero", max_history=10)
+        session.doom = DOOM_MAX - 1
+        session.chapter = 1
+        session.scene_in_chapter = 0
+        eng._sessions["u1"] = session
+        # LLM returns finale narrative without choices
+        eng._client = _make_mock_groq("The hero meets their doom.")
+        result = await eng.advance_story("u1", "attack")  # risky -> triggers doom finale
+        assert "1." in result, "doom finale must always return a choices block"
+        # Confirm it includes end-of-story semantics from the finale fallback
+        assert "Start over" in result or "New adventure" in result or "[END]" in result
+
+    @pytest.mark.asyncio
+    async def test_forced_finale_without_llm_choices_gets_finale_fallback(self):
+        """forced-peril finale appends end-of-story fallback when LLM omits choices."""
+        with patch("story_engine.AsyncGroq") as mock_cls:
+            mock_cls.return_value = _make_mock_groq()
+            eng = StoryEngine(api_key="fake-key")
+        session = Session("u1", "Hero", max_history=10)
+        session.chapter = MAX_CHAPTERS
+        session.scene_in_chapter = SCENES_PER_CHAPTER - 1
+        session.doom = 0
+        eng._sessions["u1"] = session
+        # LLM returns finale narrative without choices
+        eng._client = _make_mock_groq("The final chapter closes.")
+        result = await eng.advance_story("u1", "1")  # triggers forced finale
+        assert "1." in result, "forced finale must always return a choices block"
+        assert "Start over" in result or "New adventure" in result or "[END]" in result
+
+    @pytest.mark.asyncio
+    async def test_advance_with_choices_unchanged(self):
+        """When LLM correctly includes choices, the response must be returned unchanged."""
+        with patch("story_engine.AsyncGroq") as mock_cls:
+            mock_cls.return_value = _make_mock_groq()
+            eng = StoryEngine(api_key="fake-key")
+        expected = "You press on.\n1. Keep going\n2. Turn back\n3. Rest"
+        eng._client = _make_mock_groq("Opening.\n1. A\n2. B\n3. C")
+        await eng.start_story("u1", "Carol")
+        eng._client = _make_mock_groq(expected)
+        result = await eng.advance_story("u1", "1")
+        assert result == expected
