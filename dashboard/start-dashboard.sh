@@ -23,6 +23,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
+# ---------------------------------------------------------------------------
+# Log startup failures to a file so they are visible without journalctl.
+# ---------------------------------------------------------------------------
+LOGFILE="${SCRIPT_DIR}/dashboard-error.log"
+trap 'echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] start-dashboard.sh: startup failed (exit $?)" >> "${LOGFILE}"' ERR
+
 echo "=== MCBOT Dashboard ==="
 echo "Repository root: ${REPO_ROOT}"
 
