@@ -28,6 +28,18 @@ from groq import AsyncGroq
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
+# Optional dashboard story log – imported lazily so the engine starts even
+# if the dashboard package is not installed.
+# ---------------------------------------------------------------------------
+try:
+    from dashboard.active_stories import upsert_story as _log_story
+except ImportError:  # pragma: no cover – optional dependency
+
+    def _log_story(_story: dict) -> None:  # type: ignore[misc]
+        """No-op fallback when the dashboard package is unavailable."""
+        pass
+
+# ---------------------------------------------------------------------------
 # System prompt sent with every request.  It primes the model to produce
 # short, numbered-choice output that fits within LoRa packet constraints.
 _SYSTEM_PROMPT = (
@@ -367,24 +379,25 @@ class StoryEngine:
         """
         result = []
         for s in self._sessions.values():
-            genre_info = GENRES.get(s.genre, GENRES[DEFAULT_GENRE])
-            result.append(
-                {
-                    "user_key": s.user_key,
-                    "user_name": s.user_name,
-                    "genre": s.genre,
-                    "genre_name": genre_info["name"],
-                    "chapter": s.chapter,
-                    "scene_in_chapter": s.scene_in_chapter,
-                    "doom": s.doom,
-                    "doom_max": DOOM_MAX,
-                    "finished": s.finished,
-                    "awaiting_chapter_choice": s.awaiting_chapter_choice,
-                    "started_at": s.started_at,
-                    "history": s.get_messages(),
-                }
-            )
+ main
         return result
+
+    def _session_to_dict(self, session: Session) -> dict:
+        """Return a plain dict representation of *session* for JSON serialisation."""
+        genre_info = GENRES.get(session.genre, GENRES[DEFAULT_GENRE])
+        return {
+            "user_key": session.user_key,
+            "user_name": session.user_name,
+            "genre": session.genre,
+            "genre_name": genre_info["name"],
+            "chapter": session.chapter,
+            "scene_in_chapter": session.scene_in_chapter,
+            "doom": session.doom,
+            "finished": session.finished,
+            "awaiting_chapter_choice": session.awaiting_chapter_choice,
+            "started_at": session.started_at,
+            "history": session.get_messages(),
+        }
 
     # ------------------------------------------------------------------
     # Story actions
@@ -394,12 +407,19 @@ class StoryEngine:
         """Begin a fresh adventure for *user_key* and return the opening text.
 
         A new :class:`Session` is always created, replacing any existing one.
+        If a session already exists it is first persisted to the story log as a
+        restarted session.
 
         Args:
             user_key: Unique identifier for the user (pubkey_prefix).
             user_name: Human-readable name used in the opening prompt.
             genre: Genre ID from :data:`GENRES` (default: ``"wasteland"``).
         """
+        # Persist the old session before replacing it (counts as a restart).
+        existing = self._sessions.get(user_key)
+        if existing is not None:
+            _log_story(self._session_to_dict(existing))
+
         session = Session(user_key, user_name, self._max_history)
         session.genre = genre
         self._sessions[user_key] = session
@@ -487,6 +507,7 @@ class StoryEngine:
                 # End – close the story.
                 session.awaiting_chapter_choice = False
                 session.finished = True
+                _log_story(self._session_to_dict(session))
                 log.info("Story ended by player %s", user_key)
                 return "Your adventure ends here.\n[END]\n1. Start over\n2. New adventure\n3. Quit"
 
@@ -519,6 +540,7 @@ class StoryEngine:
             reply = await self._call_llm(session, system_prompt=_PERIL_FINALE_SYSTEM)
             session.add_message("assistant", reply)
             session.finished = True
+            _log_story(self._session_to_dict(session))
             log.info(
                 "Peril finale for %s (doom=%d >= DOOM_MAX=%d)",
                 user_key,
@@ -535,6 +557,7 @@ class StoryEngine:
                 reply = await self._call_llm(session, system_prompt=_PERIL_FINALE_SYSTEM)
                 session.add_message("assistant", reply)
                 session.finished = True
+                _log_story(self._session_to_dict(session))
                 log.info(
                     "Forced peril finale for %s (chapter=%d >= MAX_CHAPTERS=%d)",
                     user_key,

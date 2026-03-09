@@ -34,3 +34,7 @@ htmlcov/
 # Dashboard runtime state file (written by the bot; not for version control)
 dashboard/bot_state.json
 dashboard/bot_state.json.tmp
+
+# Dashboard persistent story log (written at runtime; not for version control)
+dashboard/active_stories.json
+dashboard/active_stories.json.tmp
