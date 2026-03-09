@@ -41,13 +41,14 @@ MCBOT/
 ├── requirements.txt               # Python dependencies (includes pyserial)
 ├── requirements-dev.txt           # Dev/test dependencies (includes psutil)
 ├── .env.example                   # Configuration template
-├── setup.sh                       # Interactive setup wizard (.env generator + systemd installer)
+├── setup.sh                       # Interactive setup wizard (.env, venv, and systemd services)
 ├── dashboard.sh                   # Convenience wrapper – start the web dashboard (created by setup.sh)
-├── mcbot.service                  # Systemd unit file template (installed by setup.sh)
+├── mcbot.service                  # Systemd unit file template (bot, installed by setup.sh)
 ├── pytest.ini                     # Test configuration
 ├── dashboard/                     # Web dashboard (Flask)
 │   ├── app.py
-│   ├── requirements.txt           # dashboard-specific deps (flask)
+│   ├── requirements.txt           # dashboard-specific deps (flask, flask-socketio)
+│   ├── mcbot-dashboard.service    # Systemd unit file template (dashboard, for manual install reference)
 │   └── …
 └── tests/
     ├── test_cyoa_bot.py
@@ -107,7 +108,7 @@ chmod +x setup.sh
 bash setup.sh
 ```
 
-> **To also install the systemd service in the same run**, the script needs
+> **To also install the systemd services in the same run**, the script needs
 > root for that step.  When it asks *"Re-run now with sudo?"* answer `y` and
 > it will re-exec itself automatically.  Alternatively, start the whole wizard
 > with `sudo` from the beginning (use the full path to avoid the
@@ -124,15 +125,18 @@ The wizard will:
 - Install all Python dependencies into that venv:
   - `requirements.txt` – `meshcore`, `groq`, `python-dotenv`, `pyserial`
   - `requirements-dev.txt` – `pytest`, `pytest-asyncio`, `psutil`
-  - `dashboard/requirements.txt` – `flask`
+  - `dashboard/requirements.txt` – `flask`, `flask-socketio`
 - Create `dashboard.sh` in the project root for easy dashboard startup.
-- **Always** install/refresh `/etc/systemd/system/mcbot-dashboard.service`
-  so the web dashboard starts automatically on boot (idempotent – safe to
-  re-run).
 - Prompt for each configuration value and write `.env`.
-- Optionally write `/etc/systemd/system/mcbot.service` with the correct paths
-  and user, then run `systemctl daemon-reload` and
-  `systemctl enable --now mcbot.service`.
+- Optionally install and enable **both** systemd services together so that
+  both the bot and the web dashboard start automatically on every reboot:
+  - `/etc/systemd/system/mcbot.service` – the CYOA bot
+  - `/etc/systemd/system/mcbot-dashboard.service` – the web dashboard
+
+  Both services use `.venv/bin/python` for full dependency isolation.  The
+  wizard runs `systemctl daemon-reload` and `systemctl enable --now` for each
+  service, then prints the live `systemctl status` output so you can confirm
+  both are active before you leave the terminal.
 - Optionally launch `mcbot_monitor.py --info` to verify the setup.
 
 ### Step 5 – (Manual alternative to the wizard)
@@ -634,15 +638,21 @@ avoid the `sudo: ./setup.sh: command not found` pitfall:
 sudo bash "$(pwd)/setup.sh"
 ```
 
-When prompted *"Would you like to install and enable the mcbot systemd
-service?"*, answer `y`.  The script will:
+When prompted *"Would you like to install and enable both systemd services
+(mcbot + mcbot-dashboard)?"*, answer `y`.  The script will:
 
 1. Detect your username (`$SUDO_USER`) and the repo's absolute path.
-2. Write `/etc/systemd/system/mcbot.service` with the exact paths filled in.
-3. Run `systemctl daemon-reload && systemctl enable --now mcbot.service`.
+2. Write `/etc/systemd/system/mcbot.service` (bot) and
+   `/etc/systemd/system/mcbot-dashboard.service` (web dashboard) with the
+   exact paths filled in.  Both services use `.venv/bin/python`.
+3. Run `systemctl daemon-reload && systemctl enable --now` for each service.
+4. Print the live `systemctl status` output for both services so you can
+   confirm they are active.
 
-The service file written will look like this (using `/home/cyoa/MCBOT` as the
+The service files written will look like this (using `/home/cyoa/MCBOT` as the
 example path — your actual paths are substituted automatically):
+
+**`/etc/systemd/system/mcbot.service`** (bot):
 
 ```ini
 [Unit]
@@ -655,6 +665,28 @@ User=cyoa
 WorkingDirectory=/home/cyoa/MCBOT
 EnvironmentFile=/home/cyoa/MCBOT/.env
 ExecStart=/home/cyoa/MCBOT/.venv/bin/python /home/cyoa/MCBOT/cyoa_bot.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**`/etc/systemd/system/mcbot-dashboard.service`** (web dashboard):
+
+```ini
+[Unit]
+Description=MCBOT Web Dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cyoa
+WorkingDirectory=/home/cyoa/MCBOT
+ExecStart=/home/cyoa/MCBOT/.venv/bin/python -m dashboard.app
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal
@@ -710,7 +742,9 @@ Use this if you prefer not to use the wizard.
 
    You should see `active (running)` and `enabled`.
 
-### Managing the service
+### Managing the services
+
+**Bot (`mcbot`):**
 
 | Task | Command |
 |---|---|
@@ -723,15 +757,29 @@ Use this if you prefer not to use the wizard.
 | Disable auto-start | `sudo systemctl disable mcbot` |
 | Re-enable auto-start | `sudo systemctl enable mcbot` |
 
+**Dashboard (`mcbot-dashboard`):**
+
+| Task | Command |
+|---|---|
+| Check status | `sudo systemctl status mcbot-dashboard` |
+| View live logs | `sudo journalctl -u mcbot-dashboard -f` |
+| View recent logs | `sudo journalctl -u mcbot-dashboard -n 50` |
+| Stop the dashboard | `sudo systemctl stop mcbot-dashboard` |
+| Start the dashboard | `sudo systemctl start mcbot-dashboard` |
+| Restart the dashboard | `sudo systemctl restart mcbot-dashboard` |
+| Disable auto-start | `sudo systemctl disable mcbot-dashboard` |
+| Re-enable auto-start | `sudo systemctl enable mcbot-dashboard` |
+
 ### Verifying auto-start after reboot
 
 ```bash
 sudo reboot
 # After the Pi comes back up:
 sudo systemctl status mcbot
+sudo systemctl status mcbot-dashboard
 ```
 
-The status should show `active (running)` and `enabled`.
+Both services should show `active (running)` and `enabled`.
 
 ---
 
