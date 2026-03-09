@@ -38,16 +38,36 @@ from utils import chunk_message
 # if the dashboard package is not installed.
 # ---------------------------------------------------------------------------
 try:
+    from dashboard.active_stories import STORIES_FILE as _STORIES_FILE
     from dashboard.app import create_app as _dashboard_create_app
     from dashboard.app import socketio as _dashboard_socketio
+    from dashboard.state import STATE_FILE as _STATE_FILE
     from dashboard.state import write_state as _write_dashboard_state
 
     _DASHBOARD_ENABLED = True
 except ImportError:  # pragma: no cover – optional dependency
     _DASHBOARD_ENABLED = False
+    _STATE_FILE: str | None = None  # type: ignore[assignment]
+    _STORIES_FILE: str | None = None  # type: ignore[assignment]
 
     def _write_dashboard_state(_data: dict) -> None:  # type: ignore[misc]
         """No-op fallback when the dashboard package is unavailable."""
+
+
+def _clear_session_files() -> None:
+    """Delete persistent session and story files at startup for a clean slate.
+
+    Removes ``bot_state.json`` and ``active_stories.json`` if they exist so
+    that every bot restart begins with no leftover session or story data.
+    This is intentional behaviour during testing.
+    """
+    for path in (_STATE_FILE, _STORIES_FILE):
+        if path and os.path.exists(path):
+            try:
+                os.remove(path)
+                log.info("Startup: cleared session file %s", path)
+            except OSError as exc:  # pragma: no cover
+                log.warning("Startup: could not remove %s: %s", path, exc)
 
 
 def _start_dashboard_server(*, host: str = "0.0.0.0", port: int = 5000) -> None:
@@ -845,6 +865,10 @@ async def main(argv: list[str] | None = None) -> None:
 
     if args.check_env:
         _check_env()  # prints and exits
+
+    # Clear any leftover session/story files from a previous run so every
+    # restart begins with a completely clean slate (important during testing).
+    _clear_session_files()
 
     serial_port: str = args.port
     baud_rate: int = args.baud

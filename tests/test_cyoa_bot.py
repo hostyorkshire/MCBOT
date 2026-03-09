@@ -1440,3 +1440,81 @@ class TestSendChunkedRetry:
         with patch("cyoa_bot.asyncio.sleep", new_callable=AsyncMock):
             await bot.send_chunked(mc, "dest", "hi", chunk_size=200, delay=0.0, retries=3)
         assert mc.commands.send_msg.call_count == 3
+
+
+# ---------------------------------------------------------------------------
+# Tests: _clear_session_files
+# ---------------------------------------------------------------------------
+
+
+class TestClearSessionFiles:
+    """Tests for the startup session-file cleanup helper."""
+
+    def test_removes_existing_state_file(self, bot, tmp_path):
+        """An existing bot_state.json file is deleted at startup."""
+        state_file = tmp_path / "bot_state.json"
+        state_file.write_text("{}")
+        stories_file = tmp_path / "active_stories.json"
+
+        with (
+            patch.object(bot, "_STATE_FILE", str(state_file)),
+            patch.object(bot, "_STORIES_FILE", str(stories_file)),
+        ):
+            bot._clear_session_files()
+
+        assert not state_file.exists()
+
+    def test_removes_existing_stories_file(self, bot, tmp_path):
+        """An existing active_stories.json file is deleted at startup."""
+        state_file = tmp_path / "bot_state.json"
+        stories_file = tmp_path / "active_stories.json"
+        stories_file.write_text("[]")
+
+        with (
+            patch.object(bot, "_STATE_FILE", str(state_file)),
+            patch.object(bot, "_STORIES_FILE", str(stories_file)),
+        ):
+            bot._clear_session_files()
+
+        assert not stories_file.exists()
+
+    def test_no_error_when_files_absent(self, bot, tmp_path):
+        """No exception is raised when neither file exists."""
+        state_file = tmp_path / "bot_state.json"
+        stories_file = tmp_path / "active_stories.json"
+
+        with (
+            patch.object(bot, "_STATE_FILE", str(state_file)),
+            patch.object(bot, "_STORIES_FILE", str(stories_file)),
+        ):
+            bot._clear_session_files()  # must not raise
+
+    def test_logs_info_when_file_removed(self, bot, tmp_path):
+        """A log.info message is emitted for each file that is deleted."""
+        state_file = tmp_path / "bot_state.json"
+        state_file.write_text("{}")
+        stories_file = tmp_path / "active_stories.json"
+        stories_file.write_text("[]")
+
+        with (
+            patch.object(bot, "_STATE_FILE", str(state_file)),
+            patch.object(bot, "_STORIES_FILE", str(stories_file)),
+            patch("cyoa_bot.log") as mock_log,
+        ):
+            bot._clear_session_files()
+
+        assert mock_log.info.call_count == 2
+
+    def test_no_log_when_files_absent(self, bot, tmp_path):
+        """No log.info is emitted when neither file exists."""
+        state_file = tmp_path / "bot_state.json"
+        stories_file = tmp_path / "active_stories.json"
+
+        with (
+            patch.object(bot, "_STATE_FILE", str(state_file)),
+            patch.object(bot, "_STORIES_FILE", str(stories_file)),
+            patch("cyoa_bot.log") as mock_log,
+        ):
+            bot._clear_session_files()
+
+        mock_log.info.assert_not_called()
