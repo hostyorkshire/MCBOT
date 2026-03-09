@@ -683,6 +683,11 @@ class StoryEngine:
     async def _call_llm(self, session: Session, *, system_prompt: str | None = None) -> str:
         """Call the Groq API and return the assistant's response text.
 
+        Only ``role`` and ``content`` are forwarded to the API; any extra
+        fields stored in the history (e.g. ``ts`` for the dashboard) are
+        intentionally stripped to avoid an ``invalid_request_error`` from
+        the Groq endpoint.
+
         Args:
             session: The active :class:`Session` whose history is sent.
             system_prompt: Override the default :data:`_SYSTEM_PROMPT`.  Used
@@ -692,7 +697,7 @@ class StoryEngine:
         sp = system_prompt if system_prompt is not None else _SYSTEM_PROMPT
         messages: list[dict[str, str]] = [
             {"role": "system", "content": sp},
-            *session.get_messages(),
+            *[{"role": m["role"], "content": m["content"]} for m in session.get_messages()],
         ]
 
         try:
