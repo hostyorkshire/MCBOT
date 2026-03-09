@@ -726,14 +726,14 @@ class TestBotHandlerHelp:
 
 
 class TestBotHandlerStart:
-    """Start command must send the intro message and immediately start the story."""
+    """Start command must start the story directly without sending the intro first."""
 
     @pytest.mark.asyncio
-    async def test_start_sends_intro_message(self, bot):
+    async def test_start_does_not_send_intro_message(self, bot):
         handler, mc, _ = _make_handler(bot)
         await handler.handle("bb22", "start", "Bob")
         texts = _sent_texts(mc)
-        assert texts[0] == bot.INTRO_MSG
+        assert bot.INTRO_MSG not in texts
 
     @pytest.mark.asyncio
     async def test_start_starts_story_immediately(self, bot):
@@ -752,14 +752,14 @@ class TestBotHandlerStart:
     async def test_new_command_triggers_start(self, bot):
         handler, mc, story_engine = _make_handler(bot)
         await handler.handle("bb22", "new", "Bob")
-        assert _sent_texts(mc)[0] == bot.INTRO_MSG
+        assert bot.INTRO_MSG not in _sent_texts(mc)
         story_engine.start_story.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_begin_command_triggers_start(self, bot):
         handler, mc, story_engine = _make_handler(bot)
         await handler.handle("bb22", "begin", "Bob")
-        assert _sent_texts(mc)[0] == bot.INTRO_MSG
+        assert bot.INTRO_MSG not in _sent_texts(mc)
         story_engine.start_story.assert_called_once()
 
 
@@ -778,11 +778,11 @@ class TestBotHandlerReset:
         story_engine.clear_session.assert_called_once_with("ff66")
 
     @pytest.mark.asyncio
-    async def test_restart_sends_intro_and_starts_story(self, bot):
+    async def test_restart_starts_story_without_intro(self, bot):
         handler, mc, story_engine = _make_handler(bot)
         await handler.handle("ff66", "restart", "Frank")
         texts = _sent_texts(mc)
-        assert texts[0] == bot.INTRO_MSG
+        assert bot.INTRO_MSG not in texts
         story_engine.start_story.assert_called_once()
 
     @pytest.mark.asyncio
@@ -792,11 +792,11 @@ class TestBotHandlerReset:
         story_engine.clear_session.assert_called_once_with("ff66")
 
     @pytest.mark.asyncio
-    async def test_reset_sends_intro_and_starts_story(self, bot):
+    async def test_reset_starts_story_without_intro(self, bot):
         handler, mc, story_engine = _make_handler(bot)
         await handler.handle("ff66", "reset", "Frank")
         texts = _sent_texts(mc)
-        assert texts[0] == bot.INTRO_MSG
+        assert bot.INTRO_MSG not in texts
         story_engine.start_story.assert_called_once()
 
 
@@ -942,10 +942,10 @@ class TestBotHandlerGenreStart:
     """start <genre|#> should start the story with the specified genre."""
 
     @pytest.mark.asyncio
-    async def test_start_horror_sends_intro_and_starts_story(self, bot):
+    async def test_start_horror_starts_story_with_genre(self, bot):
         handler, mc, story_engine = _make_handler(bot)
         await handler.handle("gg77", "start horror", "Grace")
-        assert _sent_texts(mc)[0] == bot.INTRO_MSG
+        assert bot.INTRO_MSG not in _sent_texts(mc)
         story_engine.start_story.assert_called_once_with("gg77", "Grace", genre="horror")
 
     @pytest.mark.asyncio
@@ -1095,9 +1095,9 @@ class TestBotHandlerStoryChoicesSplit:
         )
         await handler.handle("hh88", "start", "Harriet")
         texts = _sent_texts(mc)
-        # First message is the intro; then narrative and choices follow
-        assert texts[1] == "You wake in a cave."
-        assert texts[2] == "1. Explore\n2. Wait\n3. Shout\n\nOr tell me what to do."
+        # No intro; narrative and choices are the only messages
+        assert texts[0] == "You wake in a cave."
+        assert texts[1] == "1. Explore\n2. Wait\n3. Shout\n\nOr tell me what to do."
 
     @pytest.mark.asyncio
     async def test_start_always_sends_narrative_and_choices(self, bot):
@@ -1105,8 +1105,8 @@ class TestBotHandlerStoryChoicesSplit:
         story_engine.start_story = AsyncMock(return_value="Short.\n1. A\n2. B\n3. C")
         await handler.handle("hh88", "start", "Harriet")
         texts = _sent_texts(mc)
-        # intro + narrative + choices = exactly 3 sends
-        assert len(texts) == 3
+        # narrative + choices = exactly 2 sends
+        assert len(texts) == 2
 
     @pytest.mark.asyncio
     async def test_choice_advance_sends_narrative_then_choices(self, bot):
@@ -1138,9 +1138,9 @@ class TestBotHandlerStoryChoicesSplit:
         story_engine.start_story = AsyncMock(return_value="Once upon a time…")
         await handler.handle("hh88", "start", "Harriet")
         texts = _sent_texts(mc)
-        # intro + single story message = 2 sends total
-        assert len(texts) == 2
-        assert "Once upon a time" in texts[1]
+        # single story message only (no intro)
+        assert len(texts) == 1
+        assert "Once upon a time" in texts[0]
 
 
 # ---------------------------------------------------------------------------
@@ -1235,18 +1235,18 @@ class TestBotHandlerIdleInvocation:
     """Idle users (no session, not pending) – invocation and rate-limit rules."""
 
     @pytest.mark.asyncio
-    async def test_non_invoked_random_text_sends_nothing(self, bot):
-        """Plain chat text while idle must send a first-contact help hint."""
+    async def test_non_invoked_random_text_sends_intro(self, bot):
+        """Plain chat text while idle must send the introductory greeting."""
         handler, mc, _ = _make_handler(bot)
         await handler.handle("jj00", "hello", "Joe")
-        assert EXPECTED_HELP_TEXT in _sent_texts(mc)
+        assert bot.INTRO_MSG in _sent_texts(mc)
 
     @pytest.mark.asyncio
-    async def test_non_invoked_sentence_sends_nothing(self, bot):
-        """A plain sentence while idle must send a first-contact help hint."""
+    async def test_non_invoked_sentence_sends_intro(self, bot):
+        """A plain sentence while idle must send the introductory greeting."""
         handler, mc, _ = _make_handler(bot)
         await handler.handle("jj00", "how are you doing", "Joe")
-        assert EXPECTED_HELP_TEXT in _sent_texts(mc)
+        assert bot.INTRO_MSG in _sent_texts(mc)
 
     @pytest.mark.asyncio
     async def test_invoked_unknown_command_with_prefix_sends_help(self, bot):
@@ -1263,11 +1263,11 @@ class TestBotHandlerIdleInvocation:
         assert EXPECTED_HELP_TEXT in _sent_texts(mc)
 
     @pytest.mark.asyncio
-    async def test_plain_unknown_word_sends_nothing(self, bot):
-        """A plain unknown word (no prefix) while idle must send a first-contact help hint."""
+    async def test_plain_unknown_word_sends_intro(self, bot):
+        """A plain unknown word (no prefix) while idle must send the introductory greeting."""
         handler, mc, _ = _make_handler(bot)
         await handler.handle("jj00", "randomword", "Joe")
-        assert EXPECTED_HELP_TEXT in _sent_texts(mc)
+        assert bot.INTRO_MSG in _sent_texts(mc)
 
     @pytest.mark.asyncio
     async def test_rate_limit_second_invocation_silenced(self, bot):
@@ -1307,7 +1307,7 @@ class TestBotHandlerIdleInvocation:
         """Second non-invoked message within cooldown should be silenced."""
         handler, mc, _ = _make_handler(bot)
         await handler.handle("jj00", "hello", "Joe")
-        assert EXPECTED_HELP_TEXT in _sent_texts(mc)
+        assert bot.INTRO_MSG in _sent_texts(mc)
         mc.commands.send_msg.reset_mock()
         # Second non-invoked message within cooldown – should be silenced.
         await handler.handle("jj00", "how are you", "Joe")
@@ -1315,13 +1315,13 @@ class TestBotHandlerIdleInvocation:
 
     @pytest.mark.asyncio
     async def test_non_invoked_rate_limit_independent_per_user(self, bot):
-        """First-contact rate-limiting is per-user; a second user should still get the hint."""
+        """First-contact rate-limiting is per-user; a second user should still get the intro."""
         handler, mc, _ = _make_handler(bot)
         await handler.handle("jj00", "hello", "Joe")
         mc.commands.send_msg.reset_mock()
         # Different user – should not be rate-limited.
         await handler.handle("kk11", "hello", "Kate")
-        assert EXPECTED_HELP_TEXT in _sent_texts(mc)
+        assert bot.INTRO_MSG in _sent_texts(mc)
 
 
 # ---------------------------------------------------------------------------

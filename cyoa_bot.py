@@ -781,13 +781,11 @@ class BotHandler:
                     return
                 genre = resolved
             log.info(
-                "Start command from %s (%s) genre=%s – sending intro",
+                "Start command from %s (%s) genre=%s – starting story",
                 user_name,
                 pubkey_prefix,
                 genre,
             )
-            await self._send(pubkey_prefix, INTRO_MSG)
-            log.info("Starting story for %s (%s)", user_name, pubkey_prefix)
             response = await self.story_engine.start_story(pubkey_prefix, user_name, genre=genre)
             await self._send_story(pubkey_prefix, response)
             return
@@ -815,12 +813,14 @@ class BotHandler:
                     pubkey_prefix,
                 )
                 return
+            self._last_help_hint[pubkey_prefix] = now
             if not _is_invoked(text, command):
                 log.info(
-                    "First contact from %s (%s) – sending help hint",
+                    "First contact from %s (%s) – sending intro",
                     user_name,
                     pubkey_prefix,
                 )
+                await self._send(pubkey_prefix, INTRO_MSG)
             else:
                 log.info(
                     "Unknown command %r from %s (%s) – sending help",
@@ -828,8 +828,7 @@ class BotHandler:
                     user_name,
                     pubkey_prefix,
                 )
-            self._last_help_hint[pubkey_prefix] = now
-            await self._send(pubkey_prefix, HELP_TEXT)
+                await self._send(pubkey_prefix, HELP_TEXT)
             return
 
         await self._send_story(pubkey_prefix, response)
