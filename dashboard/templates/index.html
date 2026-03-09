@@ -56,12 +56,12 @@
       </div>
     </section>
 
-    <!-- ── Recent stories card ─────────────────────────────────── -->
-    <section class="card" aria-labelledby="stories-heading">
-      <h2 id="stories-heading">📖 Recent Stories</h2>
-      <div id="stories-container">
-        <p class="empty-note" id="stories-empty">Loading…</p>
-        <table class="stories-table" id="stories-table" style="display:none" aria-label="Last 20 story sessions">
+    <!-- ── Active stories card ─────────────────────────────────── -->
+    <section class="card" aria-labelledby="active-stories-heading">
+      <h2 id="active-stories-heading">▶️ Active Stories</h2>
+      <div id="active-stories-container">
+        <p class="empty-note" id="active-stories-empty">Loading…</p>
+        <table class="stories-table" id="active-stories-table" style="display:none" aria-label="Active story sessions">
           <thead>
             <tr>
               <th>User</th>
@@ -72,7 +72,28 @@
               <th>Started</th>
             </tr>
           </thead>
-          <tbody id="stories-tbody"></tbody>
+          <tbody id="active-stories-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── Finished stories card ───────────────────────────────── -->
+    <section class="card" aria-labelledby="finished-stories-heading">
+      <h2 id="finished-stories-heading">✅ Finished Stories</h2>
+      <div id="finished-stories-container">
+        <p class="empty-note" id="finished-stories-empty">Loading…</p>
+        <table class="stories-table" id="finished-stories-table" style="display:none" aria-label="Finished story sessions">
+          <thead>
+            <tr>
+              <th>User</th>
+              <th>Genre</th>
+              <th>Chapter</th>
+              <th>Scene</th>
+              <th>State</th>
+              <th>Started</th>
+            </tr>
+          </thead>
+          <tbody id="finished-stories-tbody"></tbody>
         </table>
       </div>
     </section>
@@ -116,8 +137,11 @@
     }
 
     function statusPill(status) {
-      const cls = ["running","idle","offline","stopped"].includes(status) ? status : "unknown";
-      return `<span class="status-pill ${cls}">${status}</span>`;
+      const valid = ["running","idle","offline","stopped","finished","active","chapter-end"];
+      const cls = valid.includes(status) ? status : "unknown";
+      const label = status === "chapter-end" ? "Chapter End"
+                  : status.charAt(0).toUpperCase() + status.slice(1);
+      return `<span class="status-pill ${cls}">${label}</span>`;
     }
 
     function sessionState(s) {
@@ -148,18 +172,18 @@
       document.getElementById("stat-errors").textContent  = data.error_count ?? "—";
     }
 
-    // ── Render stories table ───────────────────────────────────────
-    function renderStories(sessions) {
-      const tbody  = document.getElementById("stories-tbody");
-      const table  = document.getElementById("stories-table");
-      const empty  = document.getElementById("stories-empty");
+    // ── Render a single stories table section ─────────────────────
+    function renderStoriesSection(tbodyId, tableId, emptyId, emptyMsg, sessions) {
+      const tbody = document.getElementById(tbodyId);
+      const table = document.getElementById(tableId);
+      const empty = document.getElementById(emptyId);
 
       tbody.innerHTML = "";
 
       if (!sessions || sessions.length === 0) {
         table.style.display = "none";
         empty.style.display = "block";
-        empty.textContent   = "No active stories right now.";
+        empty.textContent   = emptyMsg;
         return;
       }
 
@@ -182,6 +206,21 @@
       });
     }
 
+    // ── Render both Active and Finished stories sections ──────────
+    function renderStories(sessions) {
+      const active   = (sessions || []).filter(s => !s.finished);
+      const finished = (sessions || []).filter(s =>  s.finished);
+
+      renderStoriesSection(
+        "active-stories-tbody", "active-stories-table", "active-stories-empty",
+        "No active stories right now.", active
+      );
+      renderStoriesSection(
+        "finished-stories-tbody", "finished-stories-table", "finished-stories-empty",
+        "No finished stories yet.", finished
+      );
+    }
+
     // ── Sanitise HTML ──────────────────────────────────────────────
     function escHtml(str) {
       return String(str)
@@ -194,7 +233,8 @@
     // ── Apply a full update from either live event or poll ─────────
     function applyUpdate(status, stories) {
       const banner = document.getElementById("error-banner");
-      renderStatus(status, stories.length);
+      const activeCount = (stories || []).filter(s => !s.finished).length;
+      renderStatus(status, activeCount);
       renderStories(stories);
       banner.classList.remove("visible");
       document.getElementById("last-updated").textContent =
