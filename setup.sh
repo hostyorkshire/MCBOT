@@ -221,8 +221,11 @@ UNIT
     echo ""
     echo "Installing ${DASHBOARD_SERVICE_DEST} ..."
     echo "  User:             ${BOT_USER}"
-    echo "  WorkingDirectory: ${WORKDIR}"
-    echo "  ExecStart:        /bin/bash ${WORKDIR}/dashboard/start-dashboard.sh"
+    echo "  WorkingDirectory: ${WORKDIR}/dashboard"
+    echo "  ExecStart:        ${WORKDIR}/dashboard/start-dashboard.sh"
+
+    # Ensure the launch script is executable.
+    chmod +x "${WORKDIR}/dashboard/start-dashboard.sh"
 
     # Migrate away from legacy service names if they are still present.
     for _legacy_svc in dashboard-dashboard.service mcbot-dashboard.service; do

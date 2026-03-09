@@ -709,10 +709,11 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=cyoa
-WorkingDirectory=/home/cyoa/MCBOT
-ExecStart=/bin/bash /home/cyoa/MCBOT/dashboard/start-dashboard.sh
+WorkingDirectory=/home/cyoa/MCBOT/dashboard
+ExecStart=/home/cyoa/MCBOT/dashboard/start-dashboard.sh
 Restart=on-failure
 RestartSec=10
+Environment=PYTHONUNBUFFERED=1
 StandardOutput=journal
 StandardError=journal
 
@@ -816,6 +817,58 @@ Common causes: missing `.venv` (re-run `setup.sh`), Python version too old
 `.venv/bin/pip install -r dashboard/requirements.txt`).  See
 [dashboard/README.md – Troubleshooting](dashboard/README.md#troubleshooting)
 for a full reference table.
+
+### Troubleshooting the dashboard systemd service
+
+If `sudo systemctl status dashboard` shows `failed` or `status=1`, follow
+these steps:
+
+**1. Check the journal for the exact error:**
+
+```bash
+sudo journalctl -u dashboard -n 50 --no-pager
+```
+
+**2. Check the startup error log written by the launch script:**
+
+```bash
+cat /home/cyoa/MCBOT/dashboard/dashboard-error.log
+```
+
+(Replace `/home/cyoa/MCBOT` with your actual repo path.)
+
+**3. Common causes and remedies:**
+
+| Symptom in logs | Cause | Remedy |
+|---|---|---|
+| `No such file or directory` on `start-dashboard.sh` | Script not executable or wrong path | Re-run `sudo bash "$(pwd)/setup.sh"` to reinstall the service |
+| `No Python interpreter found` | `.venv` missing | Re-run `setup.sh` (without `sudo`) to recreate the venv |
+| `Python 3.x … required` | Python version too old | Install Python 3.10+, then re-run `setup.sh` |
+| `ModuleNotFoundError: flask_socketio` | Dashboard requirements missing | Run `.venv/bin/pip install -r dashboard/requirements.txt` |
+| `No module named dashboard` | Wrong working directory | Re-run `sudo bash "$(pwd)/setup.sh"` to reinstall the service with correct paths |
+
+**4. Manually test the launch script** (as the service user) to reproduce the
+error interactively:
+
+```bash
+sudo -u cyoa bash /home/cyoa/MCBOT/dashboard/start-dashboard.sh
+```
+
+**5. Reinstall the service** to apply any path or config corrections:
+
+```bash
+sudo bash "$(pwd)/setup.sh"
+```
+
+Answer `y` when prompted to install the systemd services.
+
+**6. After any fix, reload and restart the service:**
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart dashboard
+sudo systemctl status dashboard
+```
 
 ---
 

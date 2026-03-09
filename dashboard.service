@@ -22,10 +22,11 @@ Wants=network-online.target
 Type=simple
 # Filled in at install time by setup.sh
 User=__USER__
-WorkingDirectory=__WORKDIR__
-ExecStart=/bin/bash __WORKDIR__/dashboard/start-dashboard.sh
+WorkingDirectory=__WORKDIR__/dashboard
+ExecStart=__WORKDIR__/dashboard/start-dashboard.sh
 Restart=on-failure
 RestartSec=10
+Environment=PYTHONUNBUFFERED=1
 StandardOutput=journal
 StandardError=journal
 
