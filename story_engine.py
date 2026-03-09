@@ -459,6 +459,7 @@ class StoryEngine:
                 user_key,
                 existing.started_at,
             )
+            self._sessions.pop(user_key, None)
 
         session = Session(user_key, user_name, self._max_history)
         session.genre = genre
@@ -569,6 +570,7 @@ class StoryEngine:
                     user_key,
                     session.started_at,
                 )
+                self._sessions.pop(user_key, None)
                 return "Your adventure ends here.\n[END]\n1. Start over\n2. New adventure\n3. Quit"
 
             # Unrecognised input – re-show the chapter prompt.
@@ -617,6 +619,7 @@ class StoryEngine:
                 user_key,
                 session.started_at,
             )
+            self._sessions.pop(user_key, None)
             return reply
 
         # --- Chapter end ---
@@ -644,6 +647,7 @@ class StoryEngine:
                     user_key,
                     session.started_at,
                 )
+                self._sessions.pop(user_key, None)
                 return reply
 
             # Normal chapter end: cliffhanger + chapter-choice prompt.

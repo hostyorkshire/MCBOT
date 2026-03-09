@@ -496,13 +496,11 @@ class TestChapterBoundary:
 
     @pytest.mark.asyncio
     async def test_choice_3_ends_story(self):
-        """Selecting 3 (End) marks the story finished and returns an end screen."""
+        """Selecting 3 (End) removes the session from memory and returns an end screen."""
         eng = _engine_at_chapter_boundary()
         await eng.advance_story("u1", "1")  # trigger boundary
         reply = await eng.advance_story("u1", "3")  # End
-        session = eng._sessions["u1"]
-        assert session.awaiting_chapter_choice is False
-        assert session.finished is True
+        assert "u1" not in eng._sessions  # session removed immediately on finish
         assert "[END]" in reply
 
     @pytest.mark.asyncio
@@ -589,6 +587,71 @@ class TestLogStoryCalled:
         call_arg = mock_log.call_args[0][0]
         assert call_arg["user_key"] == "u1"
         assert call_arg["finished"] is True
+
+
+# ---------------------------------------------------------------------------
+# Finished session removal from _sessions tests
+# ---------------------------------------------------------------------------
+
+
+class TestFinishedSessionRemovedFromMemory:
+    """Verify that finished sessions are removed from _sessions immediately."""
+
+    @pytest.mark.asyncio
+    async def test_player_ended_removes_session(self):
+        """Choosing 3 (End) at a chapter boundary removes the session from _sessions."""
+        eng = _engine_at_chapter_boundary()
+        await eng.advance_story("u1", "1")  # trigger boundary
+        with patch("story_engine._log_story"):
+            await eng.advance_story("u1", "3")  # End
+        assert "u1" not in eng._sessions
+
+    @pytest.mark.asyncio
+    async def test_doom_finale_removes_session(self):
+        """Hitting DOOM_MAX removes the session from _sessions."""
+        with patch("story_engine.AsyncGroq") as mock_cls:
+            mock_cls.return_value = _make_mock_groq()
+            eng = StoryEngine(api_key="fake-key")
+        session = Session("u1", "Hero", max_history=10)
+        session.doom = DOOM_MAX - 1
+        session.chapter = 1
+        session.scene_in_chapter = 0
+        eng._sessions["u1"] = session
+        eng._client = _make_mock_groq(
+            "Doom strikes!\n[END]\n1. Start over\n2. New adventure\n3. Quit"
+        )
+        with patch("story_engine._log_story"):
+            await eng.advance_story("u1", "attack")
+        assert "u1" not in eng._sessions
+
+    @pytest.mark.asyncio
+    async def test_forced_finale_removes_session(self):
+        """Reaching MAX_CHAPTERS removes the session from _sessions."""
+        with patch("story_engine.AsyncGroq") as mock_cls:
+            mock_cls.return_value = _make_mock_groq()
+            eng = StoryEngine(api_key="fake-key")
+        session = Session("u1", "Hero", max_history=10)
+        session.chapter = MAX_CHAPTERS
+        session.scene_in_chapter = SCENES_PER_CHAPTER - 1
+        session.doom = 0
+        eng._sessions["u1"] = session
+        eng._client = _make_mock_groq(
+            "It is over.\n[END]\n1. Start over\n2. New adventure\n3. Quit"
+        )
+        with patch("story_engine._log_story"):
+            await eng.advance_story("u1", "1")
+        assert "u1" not in eng._sessions
+
+    @pytest.mark.asyncio
+    async def test_advance_after_finish_returns_no_active_story(self):
+        """After a story finishes the session is gone; advance_story returns 'No active story.'"""
+        eng = _engine_at_chapter_boundary()
+        await eng.advance_story("u1", "1")  # trigger boundary
+        with patch("story_engine._log_story"):
+            await eng.advance_story("u1", "3")  # End – removes session
+        # Session is now gone; the user gets the standard no-session prompt
+        result = await eng.advance_story("u1", "1")
+        assert "No active story" in result
 
 
 # ---------------------------------------------------------------------------
