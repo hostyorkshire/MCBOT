@@ -121,17 +121,10 @@ GENRES_TEXT: str = (
     "Genres: " + " ".join(f"{i + 1}.{gid}" for i, gid in enumerate(GENRES)) + " | start <name|#>"
 )
 
-# Onboarding / confirmation messages
-ONBOARD_MSG_1: str = "I'm going to tell you a short choose-your-own-adventure story."
-COMMANDS_URL: str = "https://adv.intergalactic.it.com/"
-ONBOARD_MSG_2: str = f"Commands & info: {COMMANDS_URL}"
-ONBOARD_MSG_3: str = "Reply YES to begin, or NO to cancel."
-TIMEOUT_MSG: str = "No reply received. Send 'start' when you're ready."
-NO_MSG: str = "Ok. Send start again when you're ready."
-
-# Seconds to wait for yes/no confirmation after sending the start prompt.
-# Kept as a module-level constant so tests can patch it to a small value.
-START_CONFIRM_TIMEOUT: float = 180.0
+# Introductory message sent when the StoryBot is invoked.
+INTRO_MSG: str = (
+    "Hello I'm the StoryBot. Type ? for a list of commands or start to begin your adventure."
+)
 
 # Valid single-digit choice commands
 _CHOICES = {"1", "2", "3"}
@@ -143,10 +136,6 @@ _RESET_CMDS = {"restart", "reset"}
 _HELP_CMDS = {"help", "?"}
 # Commands that list available genres
 _GENRES_CMDS = {"genres"}
-# Affirmative replies that confirm a start prompt
-_YES_CMDS = {"yes", "y", "ok", "okay", "sure", "yeah", "yep", "please", "go", "start"}
-# Negative replies that decline a start prompt
-_NO_CMDS = {"no", "n", "nope", "not now", "later", "cancel"}
 
 # Prefixes that some MeshCore clients prepend to commands (e.g. /start, !start)
 _CMD_PREFIXES = ("/", "!", "\\")
@@ -658,16 +647,14 @@ async def send_chunked(
 class BotHandler:
     """Manages per-user state and dispatches incoming messages.
 
-    Encapsulates the yes/no confirmation flow introduced by the start-command
-    onboarding so that it can be tested independently of the hardware layer.
+    Handles the story start flow and dispatches commands independently of the
+    hardware layer so that it can be tested with mocked dependencies.
 
     Args:
         mc: Connected :class:`~meshcore.MeshCore` instance (or compatible mock).
         story_engine: :class:`StoryEngine` used to generate story text.
         max_chunk_size: Maximum characters per LoRa chunk.
         chunk_delay: Seconds between consecutive chunks.
-        confirm_timeout: Seconds to wait for a yes/no reply before timing out.
-            Defaults to the module-level :data:`START_CONFIRM_TIMEOUT`.
     """
 
     def __init__(
@@ -676,21 +663,11 @@ class BotHandler:
         story_engine: StoryEngine,
         max_chunk_size: int = MAX_CHUNK_SIZE,
         chunk_delay: float = CHUNK_DELAY,
-        confirm_timeout: float | None = None,
     ) -> None:
         self.mc = mc
         self.story_engine = story_engine
         self.max_chunk_size = max_chunk_size
         self.chunk_delay = chunk_delay
-        self.confirm_timeout = (
-            confirm_timeout if confirm_timeout is not None else START_CONFIRM_TIMEOUT
-        )
-        # pubkey_prefix → running timeout asyncio.Task
-        self._pending_confirm: dict[str, asyncio.Task] = {}  # type: ignore[type-arg]
-        # pubkey_prefix → user_name stored at confirmation start
-        self._pending_user_names: dict[str, str] = {}
-        # pubkey_prefix → genre ID stored at confirmation start
-        self._pending_genres: dict[str, str] = {}
         # pubkey_prefixes whose message is currently being processed; guards
         # against double-dispatch when both CONTACT_MSG_RECV and
         # MESSAGES_WAITING fire for the same incoming message.
@@ -731,53 +708,9 @@ class BotHandler:
                 choices = choices + "\n\nOr tell me what to do."
             await self._send(destination, choices)
 
-    def _cancel_pending(self, pubkey_prefix: str) -> None:
-        """Cancel any running timeout task for *pubkey_prefix* and clear state."""
-        task = self._pending_confirm.pop(pubkey_prefix, None)
-        if task and not task.done():
-            task.cancel()
-        self._pending_user_names.pop(pubkey_prefix, None)
-        self._pending_genres.pop(pubkey_prefix, None)
-
-    async def _timeout_task(self, pubkey_prefix: str) -> None:
-        """Sleep for :attr:`confirm_timeout` seconds, then send the timeout message."""
-        await asyncio.sleep(self.confirm_timeout)
-        # Remove self from pending state before sending so the slot is free.
-        self._pending_confirm.pop(pubkey_prefix, None)
-        self._pending_user_names.pop(pubkey_prefix, None)
-        self._pending_genres.pop(pubkey_prefix, None)
-        log.info("Confirmation timeout for %s – sending timeout message", pubkey_prefix)
-        await self._send(pubkey_prefix, TIMEOUT_MSG)
-
-    async def _start_onboarding(
-        self,
-        pubkey_prefix: str,
-        user_name: str,
-        genre: str = DEFAULT_GENRE,
-    ) -> None:
-        """Cancel any existing confirmation and begin the 3-message onboarding."""
-        self._cancel_pending(pubkey_prefix)
-        log.info(
-            "Starting onboarding for %s (%s) genre=%s – sending 3 messages",
-            user_name,
-            pubkey_prefix,
-            genre,
-        )
-        await self._send(pubkey_prefix, ONBOARD_MSG_1)
-        await self._send(pubkey_prefix, ONBOARD_MSG_2)
-        await self._send(pubkey_prefix, ONBOARD_MSG_3)
-        self._pending_user_names[pubkey_prefix] = user_name
-        self._pending_genres[pubkey_prefix] = genre
-        task = asyncio.create_task(self._timeout_task(pubkey_prefix))
-        self._pending_confirm[pubkey_prefix] = task
-
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
-
-    def is_pending_confirm(self, pubkey_prefix: str) -> bool:
-        """Return ``True`` when *pubkey_prefix* is awaiting a yes/no reply."""
-        return pubkey_prefix in self._pending_confirm
 
     async def handle(self, pubkey_prefix: str, text: str, user_name: str) -> None:
         """Dispatch an incoming message from *pubkey_prefix*.
@@ -810,11 +743,6 @@ class BotHandler:
         """Inner dispatch logic, called only when no concurrent handling is active."""
         command, arg = _parse_command(text)
 
-        # ------------------------------------------------------------------
-        # Reset and start commands always take priority, even while awaiting
-        # a yes/no confirmation (e.g. restart while pending re-triggers flow).
-        # ------------------------------------------------------------------
-
         # --- help ---
         if command in _HELP_CMDS:
             log.info("Help command from %s (%s)", user_name, pubkey_prefix)
@@ -834,7 +762,7 @@ class BotHandler:
             self.story_engine.clear_session(pubkey_prefix)
             command = "start"
 
-        # --- start onboarding (also reached after reset) ---
+        # --- start (also reached after reset) ---
         if command in _START_CMDS:
             genre = DEFAULT_GENRE
             if arg:
@@ -852,38 +780,20 @@ class BotHandler:
                     )
                     return
                 genre = resolved
-            await self._start_onboarding(pubkey_prefix, user_name, genre)
+            log.info(
+                "Start command from %s (%s) genre=%s – sending intro",
+                user_name,
+                pubkey_prefix,
+                genre,
+            )
+            await self._send(pubkey_prefix, INTRO_MSG)
+            log.info("Starting story for %s (%s)", user_name, pubkey_prefix)
+            response = await self.story_engine.start_story(pubkey_prefix, user_name, genre=genre)
+            await self._send_story(pubkey_prefix, response)
             return
 
         # ------------------------------------------------------------------
-        # If we're waiting for a yes/no confirmation, handle it now.
-        # ------------------------------------------------------------------
-        if self.is_pending_confirm(pubkey_prefix):
-            stored_name = self._pending_user_names.get(pubkey_prefix, user_name)
-            stored_genre = self._pending_genres.get(pubkey_prefix, DEFAULT_GENRE)
-            self._cancel_pending(pubkey_prefix)
-            if command in _YES_CMDS:
-                log.info(
-                    "Yes-ish confirmation from %s (%s) – starting story",
-                    stored_name,
-                    pubkey_prefix,
-                )
-                response = await self.story_engine.start_story(
-                    pubkey_prefix, stored_name, genre=stored_genre
-                )
-                await self._send_story(pubkey_prefix, response)
-            else:
-                # Treat anything non-yes-ish (including no-ish or unknown) as a no.
-                log.info(
-                    "No-ish confirmation from %s (%s) – returning to idle",
-                    stored_name,
-                    pubkey_prefix,
-                )
-                await self._send(pubkey_prefix, NO_MSG)
-            return
-
-        # ------------------------------------------------------------------
-        # Normal dispatch (not awaiting confirmation, not a command).
+        # Normal dispatch (not a command).
         # ------------------------------------------------------------------
 
         # --- numbered choice ---
