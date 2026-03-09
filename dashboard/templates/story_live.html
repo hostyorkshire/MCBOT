@@ -111,8 +111,19 @@
 
   </div><!-- /.page-wrapper -->
 
-  <!-- Socket.IO client (served by Flask-SocketIO) -->
-  <script src="/socket.io/socket.io.js"></script>
+  <!--
+    Socket.IO 4.x JavaScript client.
+    Version 4.x is required to match Flask-SocketIO 5.x / python-socketio 5.x
+    on the server, which speaks Socket.IO protocol v5 / Engine.IO v4 (EIO4).
+    The version is pinned here so that a cached older client (EIO3) cannot
+    cause a protocol-mismatch error.
+    If live updates stop working, clear your browser cache:
+      Chrome/Edge/Firefox: Ctrl+Shift+R (Windows/Linux) or Cmd+Shift+R (Mac)
+    See dashboard/README.md – Troubleshooting for details.
+  -->
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"
+          integrity="sha384-2huaZvOR9iDzHqslqwpR87isEmrfxqyWOF7hr7BY6KG0+hVKLoEXMPUJw3ynWuhO"
+          crossorigin="anonymous"></script>
 
   <script>
     // Format the started_at Unix timestamp as a human-readable local time.

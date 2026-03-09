@@ -318,6 +318,9 @@ When you need to replace your Groq API key (e.g. it was accidentally exposed):
 | `pytest-asyncio` | `>=0.24.0` | tests |
 | `psutil` | `>=5.9.0` | `mcbot_monitor.py` |
 | `flask` | `>=3.0.0` | `dashboard/app.py` |
+| `flask-socketio` | `>=5.3.0,<6` | `dashboard/app.py` (real-time updates) |
+| `python-socketio` | `>=5.3.0,<6` | `dashboard/app.py` (EIO4 protocol) |
+| `simple-websocket` | `>=0.10.0` | WebSocket transport for python-socketio |
 
 `setup.sh` installs all of the above automatically into `.venv/`.
 
@@ -355,6 +358,15 @@ access it from another device on the same network.
 > Socket.IO, so real-time live updates will not work.  Always use
 > `bash dashboard/start-dashboard.sh`, `./dashboard.sh`, or
 > `python -m dashboard.app`.
+
+> 💡 **Socket.IO version compatibility:** The dashboard JavaScript client is
+> loaded from a pinned CDN URL (`socket.io 4.x`) to match the Python backend
+> (`flask-socketio 5.x` / `python-socketio 5.x`, which use EIO4).  If live
+> updates stop working after an upgrade or if you see WebSocket errors in the
+> browser console, **clear your browser cache** (`Ctrl+Shift+R` /
+> `Cmd+Shift+R`) and reload.  See
+> [dashboard/README.md – Troubleshooting](dashboard/README.md#troubleshooting)
+> for details.
 
 > ⚠️ **Security warning:** the dashboard binds to `0.0.0.0`, making it
 > reachable by *any* device on the same network.  Do not expose this port to
@@ -780,6 +792,18 @@ sudo systemctl status mcbot-dashboard
 ```
 
 Both services should show `active (running)` and `enabled`.
+
+If a service fails to start, check its logs for a clear error message:
+
+```bash
+sudo journalctl -u mcbot-dashboard -n 30
+```
+
+Common causes: missing `.venv` (re-run `setup.sh`), Python version too old
+(install Python 3.10+), or dashboard requirements not installed (run
+`.venv/bin/pip install -r dashboard/requirements.txt`).  See
+[dashboard/README.md – Troubleshooting](dashboard/README.md#troubleshooting)
+for a full reference table.
 
 ---
 

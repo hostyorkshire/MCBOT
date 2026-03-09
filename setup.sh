@@ -44,6 +44,13 @@ echo "Installing dev/monitor requirements into the virtual environment ..."
 echo "Installing dashboard requirements into the virtual environment ..."
 "$VENV_DIR/bin/pip" install --quiet -r dashboard/requirements.txt
 
+# Verify that flask-socketio was installed correctly (quick import check).
+if ! "$VENV_DIR/bin/python" -c "import flask_socketio" 2>/dev/null; then
+    echo "WARNING: flask_socketio could not be imported after installation." >&2
+    echo "         Check for errors in the pip install output above." >&2
+    echo "         To retry: ${VENV_DIR}/bin/pip install -r dashboard/requirements.txt" >&2
+fi
+
 echo "Python dependencies installed successfully."
 
 # Verify that the venv Python binary is usable after installation.

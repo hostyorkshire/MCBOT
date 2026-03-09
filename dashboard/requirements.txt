@@ -1,2 +1,12 @@
 flask>=3.0.0
-flask-socketio>=5.3.0
+# Pin flask-socketio and python-socketio to the 5.x series.
+# Flask-SocketIO 5.x requires python-socketio 5.x, which uses the Socket.IO
+# protocol v5 / Engine.IO v4 (EIO4).  The matching JavaScript client is
+# socket.io 4.x (see templates/index.html and templates/story_live.html).
+# Upgrading to 6.x without updating the JS CDN link will cause EIO version
+# mismatch errors in the browser.  See dashboard/README.md – Troubleshooting.
+flask-socketio>=5.3.0,<6
+python-socketio>=5.3.0,<6
+# simple-websocket provides the lightweight WebSocket transport used by
+# python-socketio when eventlet/gevent are not installed.
+simple-websocket>=0.10.0

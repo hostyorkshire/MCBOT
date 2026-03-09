@@ -121,8 +121,9 @@ it ever crashes.
 ### Quick install (recommended)
 
 **The easiest way** is simply to run `setup.sh` from the repository root – it
-automatically (re)installs and enables the dashboard systemd service every time
-it runs, with no manual steps required:
+automatically (re)installs and enables the dashboard systemd service (with the
+correct Python venv and paths for the current user/environment) whenever you
+answer `y` to the service installation prompt:
 
 ```bash
 sudo bash "$(pwd)/setup.sh"
@@ -134,10 +135,33 @@ Alternatively, run the included helper script directly (requires `sudo`):
 sudo bash dashboard/install-dashboard-service.sh
 ```
 
-Both approaches detect the correct user and repository path at install time,
-write a fully-populated unit file to `/etc/systemd/system/mcbot-dashboard.service`,
-reload the daemon, and enable + start the service.  The operation is idempotent
-– running it multiple times is safe.
+Both approaches:
+- Auto-detect the correct non-root user (`$SUDO_USER` or directory owner) and
+  the repository's absolute path.
+- Verify that the Python venv exists, is Python 3.10+, and has
+  `flask-socketio` installed; exit with a clear error and remedy if not.
+- Write a fully-populated unit file to
+  `/etc/systemd/system/mcbot-dashboard.service`.
+- Run `systemctl daemon-reload`, `enable`, and `--now` to activate the service.
+- The operation is **idempotent** – running it multiple times is safe.
+
+### Verifying autostart
+
+After installation, confirm the service is enabled and running:
+
+```bash
+sudo systemctl status mcbot-dashboard
+```
+
+You should see `active (running)` and `enabled`.
+
+To test autostart after reboot:
+
+```bash
+sudo reboot
+# Once the system is back up:
+sudo systemctl status mcbot-dashboard
+```
 
 ### Useful commands
 
@@ -145,8 +169,11 @@ reload the daemon, and enable + start the service.  The operation is idempotent
 |---|---|
 | Check status | `sudo systemctl status mcbot-dashboard` |
 | View live logs | `sudo journalctl -u mcbot-dashboard -f` |
+| View recent logs | `sudo journalctl -u mcbot-dashboard -n 50` |
 | Stop the service | `sudo systemctl stop mcbot-dashboard` |
+| Restart the service | `sudo systemctl restart mcbot-dashboard` |
 | Disable autostart | `sudo systemctl disable mcbot-dashboard` |
+| Re-enable autostart | `sudo systemctl enable mcbot-dashboard` |
 
 ### Notes
 
@@ -261,3 +288,81 @@ dashboard/
   `DASHBOARD_STATE_FILE` environment variable (future extension point).
 - **Add more stats** – extend the `write_state` call in `cyoa_bot.py` and add
   corresponding fields to the API / template.
+
+---
+
+## Troubleshooting
+
+### Socket.IO / Engine.IO version mismatch
+
+**Symptoms:**
+
+- The browser console shows an error like:
+  ```
+  WebSocket connection to 'ws://…/socket.io/?EIO=4&…' failed
+  ```
+  or
+  ```
+  The client is using an unsupported version of the Socket.IO or Engine.IO protocols
+  ```
+- The "Live updates active" status never appears; the dashboard falls back to 10-second polling.
+
+**Cause:**
+
+The Python backend (`flask-socketio` 5.x / `python-socketio` 5.x) uses
+**Socket.IO protocol v5 / Engine.IO v4 (EIO4)**.  The JavaScript client
+bundled with older server versions and cached by your browser may be EIO3
+(socket.io 2.x or 3.x), which is incompatible.
+
+The HTML templates now load the JavaScript client from a pinned CDN URL
+(`socket.io 4.7.5`) so that the URL itself acts as a cache key – a version
+change automatically fetches a fresh copy.
+
+**Remedy:**
+
+1. **Clear your browser cache** and hard-reload the page:
+   - **Chrome / Edge / Firefox:** `Ctrl+Shift+R` (Windows/Linux) or `Cmd+Shift+R` (Mac)
+   - Or open DevTools → Network tab → tick *Disable cache* → reload.
+
+2. Confirm the Python packages are the correct versions:
+   ```bash
+   .venv/bin/pip show flask-socketio python-socketio
+   ```
+   Both should be in the **5.x** series (the 5.x series uses EIO4, which
+   is what the `socket.io 4.x` JavaScript client expects).
+
+3. If you manually upgraded `python-socketio` to 6.x or higher, also update
+   the `<script src="…">` CDN URL in `templates/index.html` and
+   `templates/story_live.html` to the matching JavaScript client version.
+   See the [python-socketio compatibility table](https://python-socketio.readthedocs.io/en/stable/intro.html#version-compatibility)
+   and the [Flask-SocketIO changelog](https://flask-socketio.readthedocs.io/en/latest/changelog.html)
+   for the correct pairing.
+
+### Dashboard service fails to start
+
+If `sudo systemctl status mcbot-dashboard` shows a failure, check the logs:
+
+```bash
+sudo journalctl -u mcbot-dashboard -n 50
+```
+
+Common causes and remedies:
+
+| Error in logs | Cause | Remedy |
+|---|---|---|
+| `python: No such file or directory` | `.venv/bin/python` is missing | Re-run `setup.sh` to recreate the venv |
+| `ModuleNotFoundError: flask_socketio` | Dashboard requirements not installed | Run `.venv/bin/pip install -r dashboard/requirements.txt` |
+| `Python 3.x … required` | Python version too old | Install Python 3.10+, recreate the venv, re-run `setup.sh` |
+| `No module named dashboard` | Service started from wrong directory | Ensure `WorkingDirectory` in the unit file is the repo root; re-run the installer |
+
+To reinstall the service with correct paths:
+
+```bash
+sudo bash dashboard/install-dashboard-service.sh
+```
+
+Or re-run the full setup wizard:
+
+```bash
+sudo bash "$(pwd)/setup.sh"
+```
