@@ -31,18 +31,18 @@
         <div class="stat-box">
           <div class="stat-label">Genre</div>
           <div class="stat-value">
-            <span class="genre-tag">{{ session.genre_name | e }}</span>
+            <span class="genre-tag" id="stat-genre">{{ session.genre_name | e }}</span>
           </div>
         </div>
 
         <div class="stat-box">
           <div class="stat-label">Chapter</div>
-          <div class="stat-value">{{ session.chapter }}</div>
+          <div class="stat-value" id="stat-chapter">{{ session.chapter }}</div>
         </div>
 
         <div class="stat-box">
           <div class="stat-label">Scene</div>
-          <div class="stat-value">{{ session.scene_in_chapter }}</div>
+          <div class="stat-value" id="stat-scene">{{ session.scene_in_chapter }}</div>
         </div>
 
         <div class="stat-box doom-gauge-box">
@@ -61,7 +61,7 @@
 
         <div class="stat-box">
           <div class="stat-label">Status</div>
-          <div class="stat-value">
+          <div class="stat-value" id="stat-status">
             {% if session.finished %}
               <span class="status-pill stopped">Finished</span>
             {% elif session.awaiting_chapter_choice %}
@@ -87,18 +87,20 @@
       <h2 id="history-heading">💬 Story So Far</h2>
 
       {% set history = session.get('history', []) %}
-      {% if history %}
-        <div class="story-history">
-          {% for msg in history %}
-            <div class="story-message story-message--{{ msg.role }}">
-              <span class="story-message__role">{{ msg.role | capitalize }}</span>
-              <span class="story-message__content">{{ msg.content | e }}</span>
-            </div>
-          {% endfor %}
-        </div>
-      {% else %}
-        <p class="empty-note">No story messages yet.</p>
-      {% endif %}
+      <div id="story-history-container">
+        {% if history %}
+          <div class="story-history">
+            {% for msg in history %}
+              <div class="story-message story-message--{{ msg.role }}">
+                <span class="story-message__role">{{ msg.role | capitalize }}</span>
+                <span class="story-message__content">{{ msg.content | e }}</span>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="empty-note">No story messages yet.</p>
+        {% endif %}
+      </div>
     </section>
 
     <!-- ── Footer ──────────────────────────────────────────────── -->
@@ -256,8 +258,62 @@
 
     // ── Apply a session update from API data ───────────────────────
     /**
+     * Sanitise a string for safe insertion as HTML text.
+     *
+     * @param {*} str - Value to escape.
+     * @returns {string} HTML-escaped string.
+     */
+    function escHtml(str) {
+      return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    /**
+     * Return an HTML status-pill string for the given session object.
+     *
+     * @param {Object} sess - Session object with finished / awaiting_chapter_choice fields.
+     * @returns {string} HTML string.
+     */
+    function sessionStatusPill(sess) {
+      if (sess.finished) {
+        return '<span class="status-pill stopped">Finished</span>';
+      }
+      if (sess.awaiting_chapter_choice) {
+        return '<span class="status-pill idle">Chapter End</span>';
+      }
+      return '<span class="status-pill running">Active</span>';
+    }
+
+    /**
+     * Re-render the story history section.
+     *
+     * @param {Array} history - Array of {role, content} message objects.
+     */
+    function renderHistory(history) {
+      const container = document.getElementById("story-history-container");
+      if (!container) return;
+      if (!history || history.length === 0) {
+        container.innerHTML = '<p class="empty-note">No story messages yet.</p>';
+        return;
+      }
+      const msgs = history.map(msg => {
+        const role = msg.role || "";
+        const roleLabel = role.charAt(0).toUpperCase() + role.slice(1);
+        return `<div class="story-message story-message--${escHtml(role)}">` +
+          `<span class="story-message__role">${escHtml(roleLabel)}</span>` +
+          `<span class="story-message__content">${escHtml(msg.content)}</span>` +
+          `</div>`;
+      }).join("");
+      container.innerHTML = `<div class="story-history">${msgs}</div>`;
+    }
+
+    /**
      * Find the session matching USER_KEY in an array of story objects and,
-     * if found, re-render the doom gauge and doom display text.
+     * if found, re-render all live fields: doom gauge, genre, chapter, scene,
+     * status, started time, and story history.
      *
      * @param {Array} stories - Array of session objects from the stories API.
      */
@@ -265,11 +321,39 @@
       if (!Array.isArray(stories)) return;
       const sess = stories.find(s => s.user_key === USER_KEY);
       if (!sess) return;
+
+      // Doom gauge
       const svg = document.querySelector(".doom-gauge");
-      if (!svg) return;
-      const doom    = typeof sess.doom     === "number" ? sess.doom     : 0;
-      const doomMax = typeof sess.doom_max === "number" ? sess.doom_max : 500;
-      updateDoomGauge(svg, doom, doomMax);
+      if (svg) {
+        const doom    = typeof sess.doom     === "number" ? sess.doom     : 0;
+        const doomMax = typeof sess.doom_max === "number" ? sess.doom_max : 500;
+        updateDoomGauge(svg, doom, doomMax);
+      }
+
+      // Genre
+      const genreEl = document.getElementById("stat-genre");
+      if (genreEl) genreEl.textContent = sess.genre_name || sess.genre || "—";
+
+      // Chapter
+      const chapterEl = document.getElementById("stat-chapter");
+      if (chapterEl) chapterEl.textContent = sess.chapter ?? "—";
+
+      // Scene
+      const sceneEl = document.getElementById("stat-scene");
+      if (sceneEl) sceneEl.textContent = sess.scene_in_chapter ?? "—";
+
+      // Status pill
+      const statusEl = document.getElementById("stat-status");
+      if (statusEl) statusEl.innerHTML = sessionStatusPill(sess);
+
+      // Started time
+      const startedEl = document.getElementById("stat-started");
+      if (startedEl && sess.started_at) {
+        startedEl.textContent = new Date(sess.started_at * 1000).toLocaleString();
+      }
+
+      // Story history
+      renderHistory(sess.history || []);
     }
 
     // ── Polling fallback (used when Socket.IO is unavailable) ──────
