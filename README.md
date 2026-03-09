@@ -9,6 +9,25 @@ serial.  Story text is generated in real time by the free tier of the
 
 ---
 
+## Table of Contents
+
+- [Features](#features)
+- [Hardware Requirements](#hardware-requirements)
+- [Project Layout](#project-layout)
+- [Complete Setup Guide](#complete-setup-guide)
+- [Gameplay (via MeshCore radio)](#gameplay-via-meshcore-radio)
+- [Configuration Reference](#configuration-reference)
+- [Python Dependencies](#python-dependencies)
+- [Web Dashboard](#web-dashboard)
+- [Running Tests](#running-tests)
+- [Diagnostics and Monitoring (`mcbot_monitor.py`)](#diagnostics-and-monitoring-mcbot_monitorpy)
+- [Radio Configuration Tool (`meshcore_radio_config.py`)](#radio-configuration-tool-meshcore_radio_configpy)
+- [Running as a systemd Service (Linux / Auto-start on Reboot)](#running-as-a-systemd-service-linux-auto-start-on-reboot)
+- [Architecture](#architecture)
+- [Story Pacing / Doom System](#story-pacing-doom-system)
+
+---
+
 ## Features
 
 - Real-time CYOA storytelling delivered over LoRa mesh radio
