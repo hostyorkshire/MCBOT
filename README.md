@@ -192,7 +192,9 @@ reboot, see the [systemd service section](#running-as-a-systemd-service-linux--a
 
 ## Gameplay (via MeshCore radio)
 
-Send a direct message to the bot node from any MeshCore client:
+Send a direct message to the bot node from any MeshCore client. On first contact
+(any message with no active session), the bot replies with an introductory greeting.
+Type `start` (or another command) to begin:
 
 | Message | Action |
 |---|---|
