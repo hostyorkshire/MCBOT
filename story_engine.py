@@ -37,7 +37,7 @@ except ImportError:  # pragma: no cover – optional dependency
 
     def _log_story(_story: dict) -> None:  # type: ignore[misc]
         """No-op fallback when the dashboard package is unavailable."""
-        pass
+
 
 # ---------------------------------------------------------------------------
 # System prompt sent with every request.  It primes the model to produce
@@ -379,7 +379,7 @@ class StoryEngine:
         """
         result = []
         for s in self._sessions.values():
- main
+            result.append(self._session_to_dict(s))
         return result
 
     def _session_to_dict(self, session: Session) -> dict:
