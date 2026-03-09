@@ -377,6 +377,7 @@ class StoryEngine:
                     "chapter": s.chapter,
                     "scene_in_chapter": s.scene_in_chapter,
                     "doom": s.doom,
+                    "doom_max": DOOM_MAX,
                     "finished": s.finished,
                     "awaiting_chapter_choice": s.awaiting_chapter_choice,
                     "started_at": s.started_at,

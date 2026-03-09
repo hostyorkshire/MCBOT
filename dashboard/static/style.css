@@ -306,6 +306,21 @@ footer a {
   word-break: break-word;
 }
 
+/* ── Doom arch gauge ────────────────────────────────────────────────── */
+
+/* The doom stat-box uses a smaller font so "X / Y" fits comfortably. */
+.doom-gauge-box .doom-gauge-value {
+  font-size: 1rem;
+}
+
+/* The SVG arch fills the stat-box width, capped at 120 px. */
+.doom-gauge {
+  display: block;
+  width: 100%;
+  max-width: 120px;
+  margin: 0.3rem auto 0.1rem;
+}
+
 /* ── Responsive ─────────────────────────────────────────────────────── */
 @media (max-width: 600px) {
   .stories-table thead { display: none; }
