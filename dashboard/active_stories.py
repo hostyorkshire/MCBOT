@@ -45,6 +45,13 @@ def upsert_story(story: dict) -> None:
         log.warning("upsert_story called with missing user_key; skipping")
         return
 
+    log.debug(
+        "upsert_story: user_key=%s finished=%s started_at=%s",
+        user_key,
+        story.get("finished"),
+        story.get("started_at"),
+    )
+
     with _lock:
         stories = _load_locked()
         # Replace any existing entry for this user_key.
@@ -54,6 +61,7 @@ def upsert_story(story: dict) -> None:
         stories.sort(key=lambda s: s.get("started_at", 0))
         stories = stories[-MAX_STORIES:]
         _write_locked(stories)
+        log.debug("upsert_story: wrote %d stories to %s", len(stories), STORIES_FILE)
 
 
 def load_stories() -> list[dict]:
@@ -77,8 +85,15 @@ def _load_locked() -> list[dict]:
             data = json.load(fh)
         if isinstance(data, list):
             return data
-    except (OSError, json.JSONDecodeError):
-        pass
+        log.error(
+            "active_stories: expected a JSON list in %s, got %s; returning empty",
+            STORIES_FILE,
+            type(data).__name__,
+        )
+    except FileNotFoundError:
+        pass  # Normal on first run – not an error.
+    except (OSError, json.JSONDecodeError) as exc:
+        log.error("active_stories: failed to load %s: %s", STORIES_FILE, exc)
     return []
 
 
@@ -90,6 +105,6 @@ def _write_locked(stories: list[dict]) -> None:
             json.dump(stories, fh, default=str)
         os.replace(tmp, STORIES_FILE)
     except OSError as exc:
-        log.warning("Could not write active_stories: %s", exc)
+        log.error("active_stories: failed to write %s: %s", STORIES_FILE, exc)
         with contextlib.suppress(OSError):
             os.unlink(tmp)

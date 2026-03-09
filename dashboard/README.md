@@ -297,6 +297,90 @@ dashboard/
 
 ---
 
+## How finished story logging works
+
+When a story ends – whether the player chooses **End** at a chapter boundary,
+the **doom counter** maxes out, the story reaches the **maximum chapter limit**,
+or the player **starts a new adventure** mid-session (a restart) – the engine
+calls `upsert_story()` in `dashboard/active_stories.py`.  This writes the full
+session snapshot to `dashboard/active_stories.json` so it survives a dashboard
+reload or server restart.
+
+### Write path (story_engine.py → active_stories.json)
+
+```
+story_engine.py
+  ├── start_story()          # existing session → _log_story() [restart]
+  └── advance_story()
+        ├── choice 3 at chapter boundary → _log_story() [player-ended]
+        ├── doom >= DOOM_MAX  → _log_story() [doom finale]
+        └── chapter >= MAX_CHAPTERS → _log_story() [forced finale]
+```
+
+`_log_story` is the module-level alias for `dashboard.active_stories.upsert_story`.
+It is imported lazily so `story_engine` starts cleanly even if the `dashboard`
+package is not installed.
+
+### Read path (active_stories.json → /dashboard/api/stories)
+
+`/dashboard/api/stories` merges two sources:
+
+1. **Persisted log** (`active_stories.json`) – finished/restarted sessions that
+   survived a server restart.
+2. **In-memory sessions** (`get_sessions()`) – currently active sessions from
+   `bot_state.json`.
+
+In-memory data takes precedence over persisted data for the same `user_key`,
+ensuring live sessions show their most up-to-date state.
+
+### Troubleshooting: finished stories missing from the dashboard
+
+**Step 1 – Check the JSON log**
+
+After finishing a story, inspect the log directly:
+
+```bash
+cat dashboard/active_stories.json
+```
+
+It should contain an entry with `"finished": true` for the completed session.
+If the file is empty or missing, the write path is broken (see Step 3).
+
+**Step 2 – Check the API response**
+
+```bash
+curl http://localhost:5000/dashboard/api/stories
+```
+
+Finished sessions should appear with `"finished": true`.  If they appear here
+but not in the browser table, the issue is in the front-end JavaScript.
+
+**Step 3 – Check the application logs**
+
+Enable `DEBUG` logging (set `FLASK_DEBUG=1` or configure Python logging) and
+look for lines from `dashboard.active_stories` and `story_engine`:
+
+```
+DEBUG dashboard.active_stories  upsert_story: user_key=… finished=True …
+DEBUG dashboard.active_stories  upsert_story: wrote N stories to …
+DEBUG story_engine               _log_story called (player-ended): user_key=… …
+```
+
+If these lines are absent after a story ends, the finish code path is not
+reaching `_log_story`.
+
+**Step 4 – Look for ERROR log lines**
+
+Any `ERROR` from `dashboard.active_stories` means file I/O failed:
+
+```
+ERROR dashboard.active_stories  active_stories: failed to write …: [Errno 13] Permission denied
+```
+
+Fix the underlying cause (permissions, disk full, etc.) and restart the service.
+
+---
+
 ## Troubleshooting
 
 ### Socket.IO / Engine.IO version mismatch

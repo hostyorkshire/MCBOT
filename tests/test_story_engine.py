@@ -375,3 +375,67 @@ class TestChapterBoundary:
         await eng.advance_story("u1", "1")  # trigger boundary
         session = eng._sessions["u1"]
         assert session.continue_after_ts is None
+
+
+# ---------------------------------------------------------------------------
+# _log_story (upsert_story) call verification tests
+# ---------------------------------------------------------------------------
+
+
+class TestLogStoryCalled:
+    """Verify that _log_story / upsert_story is invoked on every finish path."""
+
+    @pytest.mark.asyncio
+    async def test_restart_logs_previous_session(self, engine: StoryEngine):
+        """start_story with an existing session must log the old session."""
+        await engine.start_story("u1", "Alice")
+        with patch("story_engine._log_story") as mock_log:
+            await engine.start_story("u1", "Alice")
+        mock_log.assert_called_once()
+        call_arg = mock_log.call_args[0][0]
+        assert call_arg["user_key"] == "u1"
+        assert "started_at" in call_arg
+
+    @pytest.mark.asyncio
+    async def test_player_ended_logs_finished_story(self, engine: StoryEngine):
+        """Choosing 3 (End) at a chapter boundary must log the finished session."""
+        eng = _engine_at_chapter_boundary()
+        await eng.advance_story("u1", "1")  # trigger boundary
+        with patch("story_engine._log_story") as mock_log:
+            await eng.advance_story("u1", "3")  # End
+        mock_log.assert_called_once()
+        call_arg = mock_log.call_args[0][0]
+        assert call_arg["user_key"] == "u1"
+        assert call_arg["finished"] is True
+
+    @pytest.mark.asyncio
+    async def test_doom_finale_logs_finished_story(self, engine: StoryEngine):
+        """Hitting DOOM_MAX must log the session with finished=True."""
+        session = Session("u1", "Hero", max_history=10)
+        session.doom = DOOM_MAX - 1  # One more tick will trigger doom
+        session.scene_in_chapter = 0
+        session.chapter = 1
+        engine._sessions["u1"] = session
+        engine._client = _make_mock_groq("Doom strikes!\n[END]\n1. Start over\n2. New adventure\n3. Quit")
+        with patch("story_engine._log_story") as mock_log:
+            await engine.advance_story("u1", "attack")  # risky → doom triggers
+        mock_log.assert_called_once()
+        call_arg = mock_log.call_args[0][0]
+        assert call_arg["user_key"] == "u1"
+        assert call_arg["finished"] is True
+
+    @pytest.mark.asyncio
+    async def test_forced_finale_logs_finished_story(self, engine: StoryEngine):
+        """Reaching MAX_CHAPTERS must log the session with finished=True."""
+        session = Session("u1", "Hero", max_history=10)
+        session.chapter = MAX_CHAPTERS
+        session.scene_in_chapter = SCENES_PER_CHAPTER - 1
+        session.doom = 0
+        engine._sessions["u1"] = session
+        engine._client = _make_mock_groq("It is over.\n[END]\n1. Start over\n2. New adventure\n3. Quit")
+        with patch("story_engine._log_story") as mock_log:
+            await engine.advance_story("u1", "1")  # triggers forced finale
+        mock_log.assert_called_once()
+        call_arg = mock_log.call_args[0][0]
+        assert call_arg["user_key"] == "u1"
+        assert call_arg["finished"] is True

@@ -419,6 +419,11 @@ class StoryEngine:
         existing = self._sessions.get(user_key)
         if existing is not None:
             _log_story(self._session_to_dict(existing))
+            log.debug(
+                "_log_story called (restart): user_key=%s started_at=%s",
+                user_key,
+                existing.started_at,
+            )
 
         session = Session(user_key, user_name, self._max_history)
         session.genre = genre
@@ -509,6 +514,11 @@ class StoryEngine:
                 session.finished = True
                 _log_story(self._session_to_dict(session))
                 log.info("Story ended by player %s", user_key)
+                log.debug(
+                    "_log_story called (player-ended): user_key=%s started_at=%s",
+                    user_key,
+                    session.started_at,
+                )
                 return "Your adventure ends here.\n[END]\n1. Start over\n2. New adventure\n3. Quit"
 
             # Unrecognised input – re-show the chapter prompt.
@@ -547,6 +557,11 @@ class StoryEngine:
                 session.doom,
                 DOOM_MAX,
             )
+            log.debug(
+                "_log_story called (doom finale): user_key=%s started_at=%s",
+                user_key,
+                session.started_at,
+            )
             return reply
 
         # --- Chapter end ---
@@ -563,6 +578,11 @@ class StoryEngine:
                     user_key,
                     session.chapter,
                     MAX_CHAPTERS,
+                )
+                log.debug(
+                    "_log_story called (forced finale): user_key=%s started_at=%s",
+                    user_key,
+                    session.started_at,
                 )
                 return reply
 
