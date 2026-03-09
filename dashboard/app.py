@@ -12,7 +12,7 @@ or, for auto-reload during development::
 The dashboard is served at ``/dashboard/`` and exposes two JSON API endpoints:
 
 * ``/dashboard/api/status``  – bot status (running/idle/offline, uptime, errors)
-* ``/dashboard/api/stories`` – list of currently active story sessions
+* ``/dashboard/api/stories`` – last 20 story sessions (active, finished, or restarted)
 
 Real-time updates are delivered via Socket.IO.  Whenever ``bot_state.json``
 changes on disk a ``story_update`` event is broadcast to all connected clients
@@ -28,6 +28,7 @@ import time
 from flask import Blueprint, Flask, jsonify, render_template
 from flask_socketio import SocketIO
 
+from dashboard.active_stories import load_stories
 from dashboard.state import STATE_FILE, get_session, get_sessions, get_status
 
 # ---------------------------------------------------------------------------
@@ -56,14 +57,31 @@ def api_status():
 
 @bp.route("/api/stories")
 def api_stories():
-    """Return active story sessions as JSON."""
-    return jsonify(get_sessions())
+    """Return last 20 story sessions (active, finished, or restarted) as JSON."""
+    # Start with the persisted log of finished/restarted sessions.
+    merged: dict[str, dict] = {
+        s["user_key"]: s for s in load_stories() if s.get("user_key")
+    }
+    # Override with currently active sessions (most up-to-date data).
+    for session in get_sessions():
+        uk = session.get("user_key")
+        if uk:
+            merged[uk] = session
+    # Return newest-first, capped at 20.
+    stories = sorted(merged.values(), key=lambda s: s.get("started_at", 0), reverse=True)
+    return jsonify(stories[:20])
 
 
 @bp.route("/story/<user_key>")
 def story_live(user_key: str):
     """Render the live detail page for a single story session."""
     session = get_session(user_key)
+    if session is None:
+        # Fall back to the persisted story log for finished/restarted sessions.
+        for s in load_stories():
+            if s.get("user_key") == user_key:
+                session = s
+                break
     if session is None:
         return render_template("story_not_found.html", user_key=user_key), 404
     return render_template("story_live.html", session=session)
@@ -102,9 +120,19 @@ def _state_watcher(app: Flask) -> None:
 
             if mtime != last_mtime:
                 last_mtime = mtime
+                merged: dict[str, dict] = {
+                    s["user_key"]: s for s in load_stories() if s.get("user_key")
+                }
+                for session in get_sessions():
+                    uk = session.get("user_key")
+                    if uk:
+                        merged[uk] = session
+                stories = sorted(
+                    merged.values(), key=lambda s: s.get("started_at", 0), reverse=True
+                )
                 payload = {
                     "status": get_status(),
-                    "stories": get_sessions(),
+                    "stories": stories[:20],
                 }
                 socketio.emit("story_update", payload)
 

@@ -9,7 +9,7 @@ A local Flask web dashboard that shows live bot status and active story sessions
 | Feature | Details |
 |---|---|
 | Bot status | Running / idle / offline, uptime, error count |
-| Active sessions | User name, genre, chapter, scene, state |
+| Last 20 sessions | User name, genre, chapter, scene, state (active, finished, or restarted) |
 | **Real-time live updates** | Instant push via Socket.IO whenever `bot_state.json` changes |
 | Fallback polling | Updates every 10 seconds if WebSockets are unavailable |
 | Styled UI | Matches the public-facing website's 70s lava-lamp theme |
@@ -188,7 +188,7 @@ machine running the dashboard (e.g. `http://192.168.1.10:5000/dashboard/`).
 |---|---|---|
 | `/dashboard/` | GET | Dashboard HTML page |
 | `/dashboard/api/status` | GET | Bot status JSON |
-| `/dashboard/api/stories` | GET | Active story sessions JSON |
+| `/dashboard/api/stories` | GET | Last 20 story sessions JSON (active, finished, or restarted) |
 
 ### `/dashboard/api/status` response
 
@@ -203,6 +203,8 @@ machine running the dashboard (e.g. `http://192.168.1.10:5000/dashboard/`).
 ```
 
 ### `/dashboard/api/stories` response
+
+Returns the last 20 story sessions (active, finished, or restarted), newest first.
 
 ```json
 [
@@ -230,7 +232,9 @@ dashboard/
 ├── __init__.py                    # Package marker
 ├── app.py                         # Flask application + API endpoints + Socket.IO setup
 ├── state.py                       # JSON state file read/write helpers
+├── active_stories.py              # Persistent story log (last 20 sessions)
 ├── bot_state.json                 # Runtime state file (written by the bot; gitignored)
+├── active_stories.json            # Persistent story log file (written on finish/restart; gitignored)
 ├── requirements.txt               # Flask + Flask-SocketIO dependencies
 ├── README.md                      # This file
 ├── dashboard-dashboard.service    # systemd unit file for automatic startup
