@@ -1,19 +1,20 @@
-# dashboard-dashboard.service – systemd unit file for the MCBOT web dashboard
+# dashboard-dashboard.service – LEGACY template (kept for reference only).
 #
-# Installation (manual):
-#   1. Copy this file to /etc/systemd/system/dashboard-dashboard.service:
-#        sudo cp dashboard/dashboard-dashboard.service /etc/systemd/system/
-#   2. Reload the systemd daemon:
-#        sudo systemctl daemon-reload
-#   3. Enable and start the service:
-#        sudo systemctl enable --now dashboard-dashboard.service
-#   4. Check the service status:
-#        sudo systemctl status dashboard-dashboard.service
-#   5. View logs:
-#        sudo journalctl -u dashboard-dashboard.service -f
+# WARNING: This file is no longer installed by install-dashboard-service.sh.
+#          It contains hard-coded placeholder values that will NOT work on
+#          most installations.
 #
-# Or simply run the included install script (requires sudo):
-#   bash dashboard/install-dashboard-service.sh
+# Use the installer instead, which auto-detects the correct user and paths:
+#
+#   sudo bash dashboard/install-dashboard-service.sh
+#
+# The installer writes mcbot-dashboard.service to /etc/systemd/system/ with
+# the correct User, WorkingDirectory, and ExecStart values filled in.
+#
+# To uninstall:
+#   sudo systemctl disable --now mcbot-dashboard.service
+#   sudo rm /etc/systemd/system/mcbot-dashboard.service
+#   sudo systemctl daemon-reload
 
 [Unit]
 Description=MCBOT Web Dashboard
@@ -22,10 +23,11 @@ After=network.target
 
 [Service]
 Type=simple
-# Run as the repository owner, not root
+# Replace with the OS user that owns the repository (e.g. pi)
 User=cyoa
+# Replace with the absolute path to the cloned repository
 WorkingDirectory=/home/cyoa/MCBOT
-# Use the virtual-environment Python so all dependencies are available
+# Use the venv Python so all dependencies are available (run ./setup.sh to create .venv)
 ExecStart=/home/cyoa/MCBOT/.venv/bin/python -m dashboard.app
 # Restart the process automatically if it exits unexpectedly
 Restart=on-failure

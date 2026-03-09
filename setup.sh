@@ -235,10 +235,10 @@ if [ -f "${INSTALL_DASHBOARD_SCRIPT}" ]; then
     if sudo bash "${INSTALL_DASHBOARD_SCRIPT}"; then
         echo ""
         echo "Dashboard service installed/refreshed successfully."
-        echo "  Status:  sudo systemctl status dashboard-dashboard"
-        echo "  Logs:    sudo journalctl -u dashboard-dashboard -f"
-        echo "  Stop:    sudo systemctl stop dashboard-dashboard"
-        echo "  Disable: sudo systemctl disable dashboard-dashboard"
+        echo "  Status:  sudo systemctl status mcbot-dashboard"
+        echo "  Logs:    sudo journalctl -u mcbot-dashboard -f"
+        echo "  Stop:    sudo systemctl stop mcbot-dashboard"
+        echo "  Disable: sudo systemctl disable mcbot-dashboard"
     else
         printf "\033[0;31mERROR: Dashboard service installation failed.\033[0m\n" >&2
         exit 1
