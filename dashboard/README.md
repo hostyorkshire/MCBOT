@@ -58,6 +58,54 @@ the same network (e.g. **http://192.168.1.10:5000/dashboard/**).
 
 ---
 
+## Automatic startup with systemd
+
+The `dashboard/` directory ships a ready-to-use systemd unit file
+(`dashboard-dashboard.service`) so the dashboard can start automatically on
+boot and restart itself if it ever crashes.
+
+### Quick install (recommended)
+
+Run the included helper script from the **repository root** (requires `sudo`):
+
+```bash
+bash dashboard/install-dashboard-service.sh
+```
+
+This copies the unit file to `/etc/systemd/system/`, reloads the daemon, and
+enables + starts the service immediately.
+
+### Manual installation
+
+```bash
+# 1. Copy the unit file to the system-wide systemd directory
+sudo cp dashboard/dashboard-dashboard.service /etc/systemd/system/
+
+# 2. Reload the systemd daemon
+sudo systemctl daemon-reload
+
+# 3. Enable and start the service
+sudo systemctl enable --now dashboard-dashboard.service
+```
+
+### Useful commands
+
+| Action | Command |
+|---|---|
+| Check status | `sudo systemctl status dashboard-dashboard` |
+| View live logs | `sudo journalctl -u dashboard-dashboard -f` |
+| Stop the service | `sudo systemctl stop dashboard-dashboard` |
+| Disable autostart | `sudo systemctl disable dashboard-dashboard` |
+
+### Notes
+
+- The service file assumes the repository is located at `/home/cyoa/MCBOT` and
+  the user is `cyoa`.  Edit `dashboard/dashboard-dashboard.service` (or the
+  installed copy in `/etc/systemd/system/`) if your paths differ, then run
+  `sudo systemctl daemon-reload`.
+
+---
+
 ## Running alongside the bot
 
 The bot (`cyoa_bot.py`) writes a `dashboard/bot_state.json` file every 5 seconds
@@ -128,16 +176,18 @@ machine running the dashboard (e.g. `http://192.168.1.10:5000/dashboard/`).
 
 ```
 dashboard/
-├── __init__.py          # Package marker
-├── app.py               # Flask application + API endpoints
-├── state.py             # JSON state file read/write helpers
-├── bot_state.json       # Runtime state file (written by the bot; gitignored)
-├── requirements.txt     # Flask dependency
-├── README.md            # This file
+├── __init__.py                    # Package marker
+├── app.py                         # Flask application + API endpoints
+├── state.py                       # JSON state file read/write helpers
+├── bot_state.json                 # Runtime state file (written by the bot; gitignored)
+├── requirements.txt               # Flask dependency
+├── README.md                      # This file
+├── dashboard-dashboard.service    # systemd unit file for automatic startup
+├── install-dashboard-service.sh   # Convenience script to install the service
 ├── static/
-│   └── style.css        # Dashboard stylesheet (lava-lamp theme)
+│   └── style.css                  # Dashboard stylesheet (lava-lamp theme)
 └── templates/
-    └── index.html       # Dashboard HTML page
+    └── index.html                 # Dashboard HTML page
 ```
 
 ---
