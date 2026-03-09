@@ -35,8 +35,12 @@ is kept as a graceful fallback for environments that do not support WebSockets.
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
+import threading
+import uuid
+from collections import deque
 
 # ---------------------------------------------------------------------------
 # Guard: refuse to start when invoked via `flask run`.
@@ -58,11 +62,6 @@ if _argv0 in ("flask", "flask.exe") and "run" in sys.argv[1:]:
         "    bash dashboard/start-dashboard.sh\n"
     )
 
-import logging
-import threading
-import uuid
-from collections import deque
-
 from flask import Blueprint, Flask, jsonify, render_template, request  # noqa: E402
 from flask_socketio import SocketIO  # noqa: E402
 
@@ -79,7 +78,7 @@ _log = logging.getLogger(__name__)
 # Sessions are ephemeral – they reset when the dashboard process restarts.
 _chat_lock: threading.Lock = threading.Lock()
 _chat_sessions: dict[str, deque] = {}
-_CHAT_MAX_TURNS: int = 20    # maximum conversation turns retained per session
+_CHAT_MAX_TURNS: int = 20  # maximum conversation turns retained per session
 _CHAT_MAX_SESSIONS: int = 500  # maximum concurrent sessions in memory
 
 _CHAT_SYSTEM_PROMPT: str = (
@@ -112,10 +111,11 @@ def _append_history(user_id: str, role: str, content: str) -> None:
             _chat_sessions[user_id] = deque(maxlen=_CHAT_MAX_TURNS)
         _chat_sessions[user_id].append({"role": role, "content": content})
 
+
 # ---------------------------------------------------------------------------
 # Blueprint – all routes live under /dashboard/
 # ---------------------------------------------------------------------------
-bp = Blueprint(  # noqa: E302
+bp = Blueprint(
     "dashboard",
     __name__,
     template_folder="templates",
@@ -240,8 +240,7 @@ def web_chat():
         return _cors(jsonify({"error": "Bot is not configured"})), 503
 
     try:
-        from groq import Groq  # noqa: PLC0415 – lazy import keeps startup fast
-        from groq import AuthenticationError, RateLimitError  # noqa: PLC0415
+        from groq import AuthenticationError, Groq, RateLimitError
 
         history = _get_history(user_id)
         messages = [{"role": "system", "content": _CHAT_SYSTEM_PROMPT}]
@@ -260,7 +259,7 @@ def web_chat():
     except RateLimitError:
         _log.warning("web_chat: Groq rate limit exceeded")
         return _cors(jsonify({"error": "Bot is busy, please try again shortly"})), 429
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         _log.error("web_chat: Groq API error: %s", exc)
         return _cors(jsonify({"error": "Bot is unavailable, please try again"})), 503
 
