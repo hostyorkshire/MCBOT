@@ -14,14 +14,14 @@ After=network.target
 
 [Service]
 Type=simple
-# Replace with the OS user that owns the repository (e.g. pi)
-User=pi
+# Replace with the OS user that owns the repository (e.g. cyoa)
+User=cyoa
 # Replace with the absolute path to the cloned repository
-WorkingDirectory=/home/pi/MCBOT
+WorkingDirectory=/home/cyoa/MCBOT
 # Environment variables are loaded from the .env file created by setup.sh
-EnvironmentFile=/home/pi/MCBOT/.env
+EnvironmentFile=/home/cyoa/MCBOT/.env
 # Use the venv Python so all requirements are available (run ./setup.sh to create .venv)
-ExecStart=/home/pi/MCBOT/.venv/bin/python /home/pi/MCBOT/cyoa_bot.py
+ExecStart=/home/cyoa/MCBOT/.venv/bin/python /home/cyoa/MCBOT/cyoa_bot.py
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal
