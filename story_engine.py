@@ -27,6 +27,12 @@ from groq import AsyncGroq
 
 log = logging.getLogger(__name__)
 
+_API_ERROR_MSG = "The story pauses… (API error). Try again in a moment."
+
+
+class LLMError(Exception):
+    """Raised when the Groq LLM API call fails."""
+
 # ---------------------------------------------------------------------------
 # Optional dashboard story log – imported lazily so the engine starts even
 # if the dashboard package is not installed.
@@ -454,7 +460,6 @@ class StoryEngine:
 
         session = Session(user_key, user_name, self._max_history)
         session.genre = genre
-        self._sessions[user_key] = session
 
         genre_info = GENRES.get(genre, GENRES[DEFAULT_GENRE])
         prompt = (
@@ -463,9 +468,16 @@ class StoryEngine:
             "Opening scene + 3 numbered choices. Under 220 chars total."
         )
         session.add_message("user", prompt)
-        reply = await self._call_llm(session)
+        try:
+            reply = await self._call_llm(session)
+        except LLMError as exc:
+            # LLM failed – discard the incomplete session so the user can
+            # cleanly retry "start" without a broken session persisting.
+            self._sessions.pop(user_key, None)
+            return str(exc)
         reply = _ensure_choices(reply)
         session.add_message("assistant", reply)
+        self._sessions[user_key] = session
         log.info(
             "Started new story for %s (%s) in genre '%s'",
             user_name,
@@ -521,7 +533,14 @@ class StoryEngine:
                 # Continue – start the new chapter immediately.
                 session.awaiting_chapter_choice = False
                 session.add_message("user", "Continue the adventure.")
-                reply = await self._call_llm(session)
+                try:
+                    reply = await self._call_llm(session)
+                except LLMError as exc:
+                    # Roll back: undo the user message and restore the boundary flag
+                    # so the user can retry cleanly.
+                    session.history.pop()
+                    session.awaiting_chapter_choice = True
+                    return str(exc)
                 reply = _ensure_choices(reply)
                 session.add_message("assistant", reply)
                 log.info(
@@ -576,7 +595,11 @@ class StoryEngine:
         # --- Early peril finale ---
         if session.doom >= DOOM_MAX:
             session.add_message("user", f"I choose: {choice_text}.")
-            reply = await self._call_llm(session, system_prompt=_PERIL_FINALE_SYSTEM)
+            try:
+                reply = await self._call_llm(session, system_prompt=_PERIL_FINALE_SYSTEM)
+            except LLMError as exc:
+                session.history.pop()
+                return str(exc)
             reply = _ensure_choices(reply, _FINALE_FALLBACK_CHOICES)
             session.add_message("assistant", reply)
             session.finished = True
@@ -599,7 +622,11 @@ class StoryEngine:
             # Hard stop: max chapters exceeded → forced finale.
             if session.chapter >= MAX_CHAPTERS:
                 session.add_message("user", f"I choose: {choice_text}.")
-                reply = await self._call_llm(session, system_prompt=_PERIL_FINALE_SYSTEM)
+                try:
+                    reply = await self._call_llm(session, system_prompt=_PERIL_FINALE_SYSTEM)
+                except LLMError as exc:
+                    session.history.pop()
+                    return str(exc)
                 reply = _ensure_choices(reply, _FINALE_FALLBACK_CHOICES)
                 session.add_message("assistant", reply)
                 session.finished = True
@@ -619,7 +646,11 @@ class StoryEngine:
 
             # Normal chapter end: cliffhanger + chapter-choice prompt.
             session.add_message("user", f"I choose: {choice_text}.")
-            reply = await self._call_llm(session, system_prompt=_CLIFFHANGER_SYSTEM)
+            try:
+                reply = await self._call_llm(session, system_prompt=_CLIFFHANGER_SYSTEM)
+            except LLMError as exc:
+                session.history.pop()
+                return str(exc)
             reply = f"{reply}{_CHAPTER_CHOICE_SUFFIX}"
             session.add_message("assistant", reply)
             completed_chapter = session.chapter
@@ -635,7 +666,11 @@ class StoryEngine:
 
         # --- Normal scene advance ---
         session.add_message("user", f"I choose option {choice_text}.")
-        reply = await self._call_llm(session)
+        try:
+            reply = await self._call_llm(session)
+        except LLMError as exc:
+            session.history.pop()
+            return str(exc)
         reply = _ensure_choices(reply)
         session.add_message("assistant", reply)
         return reply
@@ -682,4 +717,4 @@ class StoryEngine:
                 )
             else:
                 log.error("Groq API error: %s", exc)
-            return "The story pauses… (API error). Try again in a moment."
+            raise LLMError(_API_ERROR_MSG) from exc
