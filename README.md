@@ -7,6 +7,12 @@ Runs on a **Raspberry Pi Zero 2W** connected to a MeshCore LoRa radio via USB
 serial.  Story text is generated in real time by the free tier of the
 [Groq](https://console.groq.com) cloud LLM API (Llama 3, Mixtral, etc.).
 
+> **MCBOT always runs inside a Python virtual environment (`.venv/`).**  
+> The setup wizard (`setup.sh`) creates and manages the venv automatically.  
+> Both manual use (`source .venv/bin/activate`) and the systemd service use  
+> the venv's Python interpreter so all dependencies are always available —  
+> even after a reboot.
+
 ---
 
 ## Table of Contents
