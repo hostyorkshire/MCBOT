@@ -75,11 +75,18 @@ echo "Installing dashboard requirements from ${REQ_FILE} ..."
 echo "Requirements OK."
 
 # ---------------------------------------------------------------------------
-# Verify that flask-socketio is importable before starting.
+# Verify that flask-socketio and eventlet are importable before starting.
 # ---------------------------------------------------------------------------
 if ! "${PYTHON}" -c "import flask_socketio" 2>/dev/null; then
     echo "" >&2
     echo "ERROR: flask_socketio could not be imported after installation." >&2
+    echo "  Try running: ${PYTHON} -m pip install -r ${REQ_FILE}" >&2
+    exit 1
+fi
+
+if ! "${PYTHON}" -c "import eventlet" 2>/dev/null; then
+    echo "" >&2
+    echo "ERROR: eventlet could not be imported after installation." >&2
     echo "  Try running: ${PYTHON} -m pip install -r ${REQ_FILE}" >&2
     exit 1
 fi

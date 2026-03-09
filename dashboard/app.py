@@ -9,6 +9,13 @@ or use the provided helper script::
 
     bash dashboard/start-dashboard.sh
 
+The dashboard uses **eventlet** as the WSGI server (via Flask-SocketIO's
+``async_mode="eventlet"``).  Eventlet must be installed (it is listed in
+``dashboard/requirements.txt``) before starting the dashboard.  The
+``python -m dashboard.app`` entry point invokes ``socketio.run()``, which
+automatically uses eventlet's built-in WSGI server – no separate gunicorn or
+uWSGI process is required.
+
 .. warning::
     **Do NOT use** ``flask run`` to start the dashboard.  Flask's built-in
     Werkzeug server does not support the Socket.IO transport required for
@@ -174,9 +181,10 @@ def create_app() -> Flask:
     app.secret_key = os.urandom(24)
     app.register_blueprint(bp, url_prefix="/dashboard")
 
-    # async_mode="threading" works with the standard WSGI dev server and keeps
-    # compatibility with gunicorn/eventlet if present.
-    socketio.init_app(app, async_mode="threading", cors_allowed_origins="*")
+    # async_mode="eventlet" tells Flask-SocketIO to use the eventlet WSGI server,
+    # which is required for reliable operation under systemd/production environments.
+    # eventlet must be installed (listed in dashboard/requirements.txt).
+    socketio.init_app(app, async_mode="eventlet", cors_allowed_origins="*")
 
     # Start the background watcher thread once the app is fully constructed.
     socketio.start_background_task(_state_watcher, app)

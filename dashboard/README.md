@@ -19,7 +19,12 @@ A local Flask web dashboard that shows live bot status and active story sessions
 ## Requirements
 
 - Python 3.10+
-- Flask 3.x and Flask-SocketIO 5.x (see `dashboard/requirements.txt`)
+- Flask 3.x, Flask-SocketIO 5.x, and **eventlet** (see `dashboard/requirements.txt`)
+
+> **eventlet** is the production-grade WSGI server used by the dashboard.  It
+> replaces Werkzeug's development server and is required for reliable Socket.IO
+> support under systemd / production environments.  It is installed
+> automatically when you run `pip install -r dashboard/requirements.txt`.
 
 ---
 
@@ -32,7 +37,11 @@ A local Flask web dashboard that shows live bot status and active story sessions
 pip install -r dashboard/requirements.txt
 ```
 
-This installs both `flask` and `flask-socketio` (plus its transport libraries).
+This installs `flask`, `flask-socketio`, `eventlet`, and their transport libraries.
+
+> **eventlet** is required for production/systemd use.  It is the WSGI server
+> that Flask-SocketIO uses when `async_mode="eventlet"` is set (which is the
+> default in this project).
 
 > The main bot dependencies (`requirements.txt`) are separate; install both if
 > you are running the bot and the dashboard on the same machine.
@@ -349,8 +358,19 @@ Common causes and remedies:
 |---|---|---|
 | `python: No such file or directory` | `.venv/bin/python` is missing | Re-run `setup.sh` to recreate the venv |
 | `ModuleNotFoundError: flask_socketio` | Dashboard requirements not installed | Run `.venv/bin/pip install -r dashboard/requirements.txt` |
+| `ModuleNotFoundError: eventlet` | eventlet not installed | Run `.venv/bin/pip install -r dashboard/requirements.txt` |
 | `Python 3.x … required` | Python version too old | Install Python 3.10+, recreate the venv, re-run `setup.sh` |
 | `No module named dashboard` | Service started from wrong directory | Ensure `WorkingDirectory` in the unit file is the repo root; re-run the installer |
+
+### After upgrading the repository
+
+After pulling new code that changes dashboard dependencies (e.g. adding
+eventlet), reinstall requirements and restart the service:
+
+```bash
+.venv/bin/pip install -r dashboard/requirements.txt
+sudo systemctl restart dashboard
+```
 
 To reinstall the service with correct paths:
 
