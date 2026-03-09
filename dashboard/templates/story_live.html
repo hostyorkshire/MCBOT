@@ -90,9 +90,12 @@
       <div id="story-history-container">
         {% if history %}
           <div class="story-history">
-            {% for msg in history %}
+            {% for msg in history | reverse %}
               <div class="story-message story-message--{{ msg.role }}">
                 <span class="story-message__role">{{ msg.role | capitalize }}</span>
+                {% if msg.ts %}
+                  <span class="story-message__ts" data-ts="{{ msg.ts }}">{{ msg.ts }}</span>
+                {% endif %}
                 <span class="story-message__content">{{ msg.content | e }}</span>
               </div>
             {% endfor %}
@@ -128,6 +131,19 @@
           crossorigin="anonymous"></script>
 
   <script>
+    // ── Constants ──────────────────────────────────────────────────
+    // USER_KEY matches the value already present in the page URL
+    // (/dashboard/story/<user_key>), so embedding it here is not a
+    // new exposure of sensitive data.
+    const USER_KEY      = {{ session.user_key | tojson }};
+    const STORIES_URL   = "{{ url_for('dashboard.api_stories') }}";
+    const POLL_INTERVAL = 10_000;  // fallback polling interval (10 seconds)
+    /** Locale options for formatting per-message timestamps. */
+    const TS_FMT_OPTS   = Object.freeze({
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit",
+    });
+
     // Format the started_at Unix timestamp as a human-readable local time.
     const startedEl = document.getElementById("stat-started");
     if (startedEl) {
@@ -137,13 +153,13 @@
       }
     }
 
-    // ── Constants ──────────────────────────────────────────────────
-    // USER_KEY matches the value already present in the page URL
-    // (/dashboard/story/<user_key>), so embedding it here is not a
-    // new exposure of sensitive data.
-    const USER_KEY      = {{ session.user_key | tojson }};
-    const STORIES_URL   = "{{ url_for('dashboard.api_stories') }}";
-    const POLL_INTERVAL = 10_000;  // fallback polling interval (10 seconds)
+    // Format any server-rendered message timestamps.
+    document.querySelectorAll(".story-message__ts[data-ts]").forEach(el => {
+      const ts = parseFloat(el.dataset.ts);
+      if (!isNaN(ts) && ts > 0) {
+        el.textContent = new Date(ts * 1000).toLocaleString([], TS_FMT_OPTS);
+      }
+    });
 
     // ── Doom arch gauge ────────────────────────────────────────────
     /**
@@ -288,9 +304,21 @@
     }
 
     /**
-     * Re-render the story history section.
+     * Format a Unix timestamp (seconds) as a human-readable local date/time.
      *
-     * @param {Array} history - Array of {role, content} message objects.
+     * @param {number} ts - Unix timestamp in seconds.
+     * @returns {string} Formatted date/time string, or empty string if invalid.
+     */
+    function fmtMsgTs(ts) {
+      if (!ts) return "";
+      return new Date(ts * 1000).toLocaleString([], TS_FMT_OPTS);
+    }
+
+    /**
+     * Re-render the story history section in reverse chronological order
+     * (newest message at the top).
+     *
+     * @param {Array} history - Array of {role, content, ts} message objects.
      */
     function renderHistory(history) {
       const container = document.getElementById("story-history-container");
@@ -299,11 +327,16 @@
         container.innerHTML = '<p class="empty-note">No story messages yet.</p>';
         return;
       }
-      const msgs = history.map(msg => {
+      const reversed = history.slice().reverse();
+      const msgs = reversed.map(msg => {
         const role = msg.role || "";
         const roleLabel = role.charAt(0).toUpperCase() + role.slice(1);
+        const tsHtml = msg.ts
+          ? `<span class="story-message__ts" data-ts="${msg.ts}">${escHtml(fmtMsgTs(msg.ts))}</span>`
+          : "";
         return `<div class="story-message story-message--${escHtml(role)}">` +
           `<span class="story-message__role">${escHtml(roleLabel)}</span>` +
+          tsHtml +
           `<span class="story-message__content">${escHtml(msg.content)}</span>` +
           `</div>`;
       }).join("");

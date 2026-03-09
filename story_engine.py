@@ -352,7 +352,7 @@ class Session:
 
     def add_message(self, role: str, content: str) -> None:
         """Append a message and prune history to *max_history* entries."""
-        self.history.append({"role": role, "content": content})
+        self.history.append({"role": role, "content": content, "ts": time.time()})
         if len(self.history) > self.max_history:
             # Always keep the first message (the story-start prompt) so the
             # model keeps context, then trim the oldest subsequent entries.
