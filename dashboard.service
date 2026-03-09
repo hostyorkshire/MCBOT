@@ -22,8 +22,8 @@ Wants=network-online.target
 Type=simple
 # Filled in at install time by setup.sh
 User=__USER__
-WorkingDirectory=__WORKDIR__/dashboard
-ExecStart=__WORKDIR__/dashboard/start-dashboard.sh
+WorkingDirectory=__WORKDIR__
+ExecStart=__WORKDIR__/.venv/bin/python -m dashboard.app
 Restart=on-failure
 RestartSec=10
 Environment=PYTHONUNBUFFERED=1
