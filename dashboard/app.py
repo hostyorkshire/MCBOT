@@ -7,7 +7,7 @@ Run with::
 
 or, for auto-reload during development::
 
-    flask --app dashboard.app run --debug
+    flask --app dashboard.app run --debug --host=0.0.0.0
 
 The dashboard is served at ``/dashboard/`` and exposes two JSON API endpoints:
 
@@ -71,4 +71,4 @@ def create_app() -> Flask:
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     _debug = os.getenv("FLASK_DEBUG", "0") == "1"
-    create_app().run(debug=_debug, host="127.0.0.1", port=5000)
+    create_app().run(debug=_debug, host="0.0.0.0", port=5000)
