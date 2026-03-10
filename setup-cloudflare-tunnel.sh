@@ -67,8 +67,8 @@ echo ""
 read -r -p "  Tunnel name                    [mcbot-tunnel]: " TUNNEL_NAME
 TUNNEL_NAME="${TUNNEL_NAME:-mcbot-tunnel}"
 
-read -r -p "  Bot API subdomain              [api.storybot.intergalactic.it.com]: " BOT_API_SUBDOMAIN
-BOT_API_SUBDOMAIN="${BOT_API_SUBDOMAIN:-api.storybot.intergalactic.it.com}"
+read -r -p "  Bot API subdomain              [apistorybot.intergalactic.it.com]: " BOT_API_SUBDOMAIN
+BOT_API_SUBDOMAIN="${BOT_API_SUBDOMAIN:-apistorybot.intergalactic.it.com}"
 
 read -r -p "  CORS origin (website domain)   [https://storybot.intergalactic.it.com]: " CORS_ORIGIN
 CORS_ORIGIN="${CORS_ORIGIN:-https://storybot.intergalactic.it.com}"

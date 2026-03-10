@@ -20,7 +20,7 @@ This guide is written for the reference setup used by this project:
 
 | Component | Location / URL |
 |---|---|
-| Bot backend (Pi Zero 2W) | tunnelled to `https://api.storybot.intergalactic.it.com` |
+| Bot backend (Pi Zero 2W) | tunnelled to `https://apistorybot.intergalactic.it.com` |
 | Website (cPanel) | served at `https://storybot.intergalactic.it.com` |
 
 ---
@@ -39,14 +39,14 @@ storybot.intergalactic.it.com  →  A record  →  <cPanel server IP>
 
 You manage this record in the Cloudflare DNS dashboard.  cPanel handles the files.  **You do not need to change this record at any point during tunnel setup.**
 
-### `api.storybot.intergalactic.it.com` — Bot API (Cloudflare Tunnel → Pi Zero)
+### `apistorybot.intergalactic.it.com` — Bot API (Cloudflare Tunnel → Pi Zero)
 
 This is the public HTTPS address for the Flask bot backend running on your Pi Zero 2W.  Because the Pi is on a local network with no public IP, a Cloudflare Tunnel is used to give it a public address.
 
 The DNS record for this subdomain is a **CNAME** pointing at your tunnel's Cloudflare address.  **This record is created automatically** when you run `cloudflared tunnel route dns` — you do not create it manually.
 
 ```
-api.storybot.intergalactic.it.com  →  CNAME  →  <tunnel-id>.cfargotunnel.com
+apistorybot.intergalactic.it.com  →  CNAME  →  <tunnel-id>.cfargotunnel.com
                                                          │
                                                Cloudflare routes traffic
                                                down the encrypted tunnel
@@ -61,9 +61,19 @@ api.storybot.intergalactic.it.com  →  CNAME  →  <tunnel-id>.cfargotunnel.com
 | Record Type | Name | Value | Who Creates It |
 |---|---|---|---|
 | `A` | `storybot.intergalactic.it.com` | `<cPanel server IP>` | You — in Cloudflare DNS dashboard |
-| `CNAME` | `api.storybot.intergalactic.it.com` | `<tunnel-id>.cfargotunnel.com` | **Auto-created** by `cloudflared tunnel route dns` |
+| `CNAME` | `apistorybot.intergalactic.it.com` | `<tunnel-id>.cfargotunnel.com` | **Auto-created** by `cloudflared tunnel route dns` |
 
-> **cPanel does not need to be configured for the tunnel at all.**  The `api.` subdomain bypasses cPanel entirely — it resolves through Cloudflare's network directly to the tunnel.
+> **cPanel does not need to be configured for the tunnel at all.**  The `apistorybot` subdomain bypasses cPanel entirely — it resolves through Cloudflare's network directly to the tunnel.
+
+---
+
+> **Why `apistorybot` and not `api.storybot`?**
+>
+> Cloudflare's Universal SSL certificate covers `*.intergalactic.it.com` (one level of subdomain only).
+> A hostname like `api.storybot.intergalactic.it.com` is **two levels deep** and is therefore **not covered**,
+> causing a "hostname not covered by a certificate" SSL error.
+> By using `apistorybot.intergalactic.it.com` (one level deep) the Universal SSL wildcard covers it
+> automatically — no paid Advanced Certificate or Total TLS subscription required.
 
 ---
 
@@ -71,7 +81,7 @@ api.storybot.intergalactic.it.com  →  CNAME  →  <tunnel-id>.cfargotunnel.com
 
 ```
 [ Browser visiting https://storybot.intergalactic.it.com/chat.html ]
-               │  HTTPS POST to https://api.storybot.intergalactic.it.com/chat
+               │  HTTPS POST to https://apistorybot.intergalactic.it.com/chat
                ▼
 [ Cloudflare Edge Network ]
                │  Encrypted outbound tunnel
@@ -183,18 +193,18 @@ Keep note of the tunnel ID — you will need it in the config file.
 Route the bot API subdomain through the tunnel:
 
 ```bash
-cloudflared tunnel route dns mcbot-tunnel api.storybot.intergalactic.it.com
+cloudflared tunnel route dns mcbot-tunnel apistorybot.intergalactic.it.com
 ```
 
 This command talks to the Cloudflare API and **automatically creates** a `CNAME` record in your Cloudflare DNS zone:
 
 ```
-api.storybot.intergalactic.it.com  →  CNAME  →  <TUNNEL-ID>.cfargotunnel.com
+apistorybot.intergalactic.it.com  →  CNAME  →  <TUNNEL-ID>.cfargotunnel.com
 ```
 
 You do not need to create or edit this record manually in the Cloudflare dashboard.  It is managed by `cloudflared`.
 
-> **Verify it appeared:** In the Cloudflare dashboard go to your domain → **DNS → Records** and confirm you can see the `CNAME` for `api.storybot.intergalactic.it.com`.
+> **Verify it appeared:** In the Cloudflare dashboard go to your domain → **DNS → Records** and confirm you can see the `CNAME` for `apistorybot.intergalactic.it.com`.
 
 > **This does not affect your existing A record** for `storybot.intergalactic.it.com`.  The two records are completely independent.
 
@@ -209,7 +219,7 @@ tunnel: <TUNNEL-ID>
 credentials-file: /home/<YOUR-USER>/.cloudflared/<TUNNEL-ID>.json
 
 ingress:
-  - hostname: api.storybot.intergalactic.it.com
+  - hostname: apistorybot.intergalactic.it.com
     service: http://localhost:5000
   - service: http_status:404
 ```
@@ -224,7 +234,7 @@ The second `ingress` rule (`http_status:404`) is required as a catch-all and mus
 
 ### Step 6 – Enable CORS on the Flask Backend
 
-Because `chat.html` is served from `https://storybot.intergalactic.it.com` and posts to `https://api.storybot.intergalactic.it.com`, the browser enforces Cross-Origin Resource Sharing (CORS).  The MCBOT Flask app reads the allowed origin from the `CHAT_CORS_ORIGIN` environment variable.
+Because `chat.html` is served from `https://storybot.intergalactic.it.com` and posts to `https://apistorybot.intergalactic.it.com`, the browser enforces Cross-Origin Resource Sharing (CORS).  The MCBOT Flask app reads the allowed origin from the `CHAT_CORS_ORIGIN` environment variable.
 
 Set this variable before starting the dashboard:
 
@@ -266,7 +276,7 @@ INF Registered tunnel connection connIndex=0
 Confirm the `/chat` endpoint is reachable and returns CORS headers:
 
 ```bash
-curl -i -X OPTIONS https://api.storybot.intergalactic.it.com/chat \
+curl -i -X OPTIONS https://apistorybot.intergalactic.it.com/chat \
   -H "Origin: https://storybot.intergalactic.it.com" \
   -H "Access-Control-Request-Method: POST"
 ```
@@ -312,7 +322,7 @@ journalctl -u cloudflared -f
 The file `website/chat.html` in this repository must point at the bot API tunnel subdomain:
 
 ```js
-const CHAT_API_BASE = "https://api.storybot.intergalactic.it.com";
+const CHAT_API_BASE = "https://apistorybot.intergalactic.it.com";
 ```
 
 If you need to point it at a different host, edit that constant before uploading.
@@ -339,7 +349,7 @@ Once both parts are complete, run a full integration test:
 
 1. Confirm the bot is running on the Pi:
    ```bash
-   curl -X POST https://api.storybot.intergalactic.it.com/chat \
+   curl -X POST https://apistorybot.intergalactic.it.com/chat \
      -H "Content-Type: application/json" \
      -d '{"message":"hello","user_id":"00000000-0000-0000-0000-000000000001"}'
    ```
@@ -372,7 +382,7 @@ Protect the `/chat` endpoint from abuse by adding a Cloudflare rate-limiting rul
 
 If you want to limit access to the chat page to specific users or teams, enable **Cloudflare Access** on the subdomain:
 
-1. In **Zero Trust → Access → Applications**, add an application for `api.storybot.intergalactic.it.com`.
+1. In **Zero Trust → Access → Applications**, add an application for `apistorybot.intergalactic.it.com`.
 2. Define a policy (e.g. email allowlist, or one-time PIN).
 
 ### Tunnel Credentials Security
@@ -392,7 +402,7 @@ Never commit the credentials file or `cert.pem` to version control.
 | Symptom | Likely Cause | Fix |
 |---|---|---|
 | `tunnel not found` error | Wrong tunnel ID in `config.yml` | Run `cloudflared tunnel list` to find the correct ID |
-| DNS CNAME record missing | Route command not run | Re-run `cloudflared tunnel route dns mcbot-tunnel api.storybot.intergalactic.it.com` |
+| DNS CNAME record missing | Route command not run | Re-run `cloudflared tunnel route dns mcbot-tunnel apistorybot.intergalactic.it.com` |
 | `502 Bad Gateway` in browser | Dashboard not running on port 5000 | Start the dashboard: `python -m dashboard.app` |
 | CORS error in browser console | `CHAT_CORS_ORIGIN` not set or wrong domain | Set `CHAT_CORS_ORIGIN=https://storybot.intergalactic.it.com` and restart the bot |
 | Chat page shows "Could not reach the bot" | `CHAT_API_BASE` wrong or tunnel is down | Verify `CHAT_API_BASE` in `chat.html` and check `sudo systemctl status cloudflared` |
