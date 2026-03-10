@@ -131,9 +131,7 @@ class TestMergeStories:
     def test_finished_story_not_overwritten_by_stale_active_session(self):
         """A finished story in active_stories.json must not be reverted to
         active by a stale session from bot_state.json."""
-        persisted = [
-            {"user_key": "u1", "user_name": "Alice", "finished": True, "started_at": 1.0}
-        ]
+        persisted = [{"user_key": "u1", "user_name": "Alice", "finished": True, "started_at": 1.0}]
         stale_active = [
             {"user_key": "u1", "user_name": "Alice", "finished": False, "started_at": 1.0}
         ]
@@ -149,9 +147,7 @@ class TestMergeStories:
 
     def test_active_session_shown_when_no_persisted_entry(self):
         """An active session with no matching persisted entry should appear."""
-        active = [
-            {"user_key": "u1", "user_name": "Alice", "finished": False, "started_at": 1.0}
-        ]
+        active = [{"user_key": "u1", "user_name": "Alice", "finished": False, "started_at": 1.0}]
 
         with (
             patch("dashboard.app.load_stories", return_value=[]),
@@ -165,12 +161,22 @@ class TestMergeStories:
     def test_finished_active_session_overrides_persisted(self):
         """An active session with finished=True should override a persisted entry."""
         persisted = [
-            {"user_key": "u1", "user_name": "Alice", "finished": False, "started_at": 1.0,
-             "chapter": 1}
+            {
+                "user_key": "u1",
+                "user_name": "Alice",
+                "finished": False,
+                "started_at": 1.0,
+                "chapter": 1,
+            }
         ]
         active = [
-            {"user_key": "u1", "user_name": "Alice", "finished": True, "started_at": 1.0,
-             "chapter": 3}
+            {
+                "user_key": "u1",
+                "user_name": "Alice",
+                "finished": True,
+                "started_at": 1.0,
+                "chapter": 3,
+            }
         ]
 
         with (
@@ -186,12 +192,22 @@ class TestMergeStories:
     def test_active_overrides_active_persisted(self):
         """When both persisted and active are unfinished, active wins (fresher data)."""
         persisted = [
-            {"user_key": "u1", "user_name": "Alice", "finished": False, "started_at": 1.0,
-             "chapter": 1}
+            {
+                "user_key": "u1",
+                "user_name": "Alice",
+                "finished": False,
+                "started_at": 1.0,
+                "chapter": 1,
+            }
         ]
         active = [
-            {"user_key": "u1", "user_name": "Alice", "finished": False, "started_at": 1.0,
-             "chapter": 2}
+            {
+                "user_key": "u1",
+                "user_name": "Alice",
+                "finished": False,
+                "started_at": 1.0,
+                "chapter": 2,
+            }
         ]
 
         with (
@@ -205,12 +221,8 @@ class TestMergeStories:
 
     def test_multiple_users_merged_correctly(self):
         """Stories from different users are all included in the result."""
-        persisted = [
-            {"user_key": "u1", "user_name": "Alice", "finished": True, "started_at": 1.0}
-        ]
-        active = [
-            {"user_key": "u2", "user_name": "Bob", "finished": False, "started_at": 2.0}
-        ]
+        persisted = [{"user_key": "u1", "user_name": "Alice", "finished": True, "started_at": 1.0}]
+        active = [{"user_key": "u2", "user_name": "Bob", "finished": False, "started_at": 2.0}]
 
         with (
             patch("dashboard.app.load_stories", return_value=persisted),
@@ -228,9 +240,7 @@ class TestMergeStories:
             {"user_key": "u1", "user_name": "Alice", "finished": True, "started_at": 1.0},
             {"user_key": "u2", "user_name": "Bob", "finished": True, "started_at": 3.0},
         ]
-        active = [
-            {"user_key": "u3", "user_name": "Carol", "finished": False, "started_at": 2.0}
-        ]
+        active = [{"user_key": "u3", "user_name": "Carol", "finished": False, "started_at": 2.0}]
 
         with (
             patch("dashboard.app.load_stories", return_value=persisted),
@@ -242,9 +252,7 @@ class TestMergeStories:
 
     def test_sessions_without_user_key_are_skipped(self):
         """Active sessions missing a user_key should be ignored."""
-        active = [
-            {"user_name": "NoKey", "finished": False, "started_at": 1.0}
-        ]
+        active = [{"user_name": "NoKey", "finished": False, "started_at": 1.0}]
 
         with (
             patch("dashboard.app.load_stories", return_value=[]),
