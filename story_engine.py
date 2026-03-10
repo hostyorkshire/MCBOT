@@ -596,7 +596,7 @@ class StoryEngine:
 
         # --- Early peril finale ---
         if session.doom >= DOOM_MAX:
-            session.add_message("user", f"I choose: {choice_text}.")
+            session.add_message("user", choice_text)
             try:
                 reply = await self._call_llm(session, system_prompt=_PERIL_FINALE_SYSTEM)
             except LLMError as exc:
@@ -623,7 +623,7 @@ class StoryEngine:
         if session.scene_in_chapter >= SCENES_PER_CHAPTER:
             # Hard stop: max chapters exceeded → forced finale.
             if session.chapter >= MAX_CHAPTERS:
-                session.add_message("user", f"I choose: {choice_text}.")
+                session.add_message("user", choice_text)
                 try:
                     reply = await self._call_llm(session, system_prompt=_PERIL_FINALE_SYSTEM)
                 except LLMError as exc:
@@ -647,7 +647,7 @@ class StoryEngine:
                 return reply
 
             # Normal chapter end: cliffhanger + chapter-choice prompt.
-            session.add_message("user", f"I choose: {choice_text}.")
+            session.add_message("user", choice_text)
             try:
                 reply = await self._call_llm(session, system_prompt=_CLIFFHANGER_SYSTEM)
             except LLMError as exc:
@@ -667,7 +667,7 @@ class StoryEngine:
             return reply
 
         # --- Normal scene advance ---
-        session.add_message("user", f"I choose option {choice_text}.")
+        session.add_message("user", choice_text)
         try:
             reply = await self._call_llm(session)
         except LLMError as exc:
