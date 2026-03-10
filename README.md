@@ -25,6 +25,7 @@ serial.  Story text is generated in real time by the free tier of the
 - [Configuration Reference](#configuration-reference)
 - [Python Dependencies](#python-dependencies)
 - [Web Dashboard](#web-dashboard)
+- [Cloudflare Tunnel (Public HTTPS Access)](#cloudflare-tunnel-public-https-access)
 - [Running Tests](#running-tests)
 - [Diagnostics and Monitoring (`mcbot_monitor.py`)](#diagnostics-and-monitoring-mcbot_monitorpy)
 - [Radio Configuration Tool (`meshcore_radio_config.py`)](#radio-configuration-tool-meshcore_radio_configpy)
@@ -67,6 +68,7 @@ MCBOT/
 ├── requirements-dev.txt           # Dev/test dependencies (includes psutil)
 ├── .env.example                   # Configuration template
 ├── setup.sh                       # Interactive setup wizard (.env, venv, and systemd services)
+├── setup-cloudflare-tunnel.sh     # Cloudflare Tunnel setup wizard (see below)
 ├── dashboard.sh                   # Convenience wrapper – start the web dashboard (created by setup.sh)
 ├── mcbot.service                  # Systemd unit file template (bot, installed by setup.sh)
 ├── dashboard.service              # Systemd unit file template (dashboard, installed by setup.sh)
@@ -423,6 +425,38 @@ bash dashboard/start-dashboard.sh
 # or, if .venv is already set up by setup.sh:
 ./dashboard.sh
 ```
+
+---
+
+## Cloudflare Tunnel (Public HTTPS Access)
+
+A Cloudflare Tunnel lets you expose the MCBOT dashboard and `/chat` API to the
+public internet **without opening any inbound firewall ports**.  The automated
+setup script handles every step — installing `cloudflared`, authenticating with
+Cloudflare, creating the tunnel, configuring DNS, enabling CORS, and setting up
+a systemd service for autostart.
+
+> **Full walkthrough:** see [`docs/cloudflare-tunnel-setup.md`](docs/cloudflare-tunnel-setup.md)
+> for a detailed step-by-step explanation of what the script does.
+
+### Running the setup script
+
+```bash
+# 1. cd into the MCBOT project directory
+cd MCBOT
+
+# 2. Run the Cloudflare Tunnel setup wizard
+bash setup-cloudflare-tunnel.sh
+```
+
+The script is interactive and will prompt you for your tunnel name, subdomain,
+CORS origin, Flask port, and Linux username (sensible defaults are provided).
+
+> **Virtual environment note:** This script does *not* use Python — it only
+> installs and configures the `cloudflared` binary and systemd services.
+> It is safe to run whether or not a virtual environment is active.
+> The MCBOT dashboard (Flask) should already be set up via `setup.sh` before
+> running this script.
 
 ---
 

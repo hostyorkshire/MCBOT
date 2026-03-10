@@ -2,6 +2,20 @@
 
 This guide explains how to expose the MCBOT dashboard and `/chat` API endpoint to the public internet using a **Cloudflare Tunnel** (`cloudflared`).  The tunnel connects your local Pi Zero 2W bot server to a public HTTPS subdomain on your Cloudflare-managed domain — without opening any inbound firewall ports.
 
+> **Quick start — automated setup script**
+>
+> An interactive script automates every step described in this guide.
+> From the MCBOT project root, run:
+>
+> ```bash
+> bash setup-cloudflare-tunnel.sh
+> ```
+>
+> The script does not require Python or virtual-environment activation — it
+> only installs and configures the `cloudflared` binary and systemd services.
+> It is safe to run whether or not a `.venv` is active.
+> The rest of this document explains each step in detail for reference.
+
 This guide is written for the reference setup used by this project:
 
 | Component | Location / URL |

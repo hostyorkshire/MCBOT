@@ -5,7 +5,13 @@
 # Automates the complete Cloudflare Tunnel setup for a Raspberry Pi Zero 2W
 # running MCBOT's Flask API backend.
 #
-# Usage: bash scripts/setup-cloudflare-tunnel.sh
+# Usage:
+#   cd MCBOT
+#   bash setup-cloudflare-tunnel.sh
+#
+# This script does NOT require Python or venv activation — it only installs
+# and configures the cloudflared binary and systemd services.  It is safe to
+# run whether or not a virtual environment is active.
 #
 # Steps match the numbered steps in docs/cloudflare-tunnel-setup.md:
 #   Step 1 – Install cloudflared
