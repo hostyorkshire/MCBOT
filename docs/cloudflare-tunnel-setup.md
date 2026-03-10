@@ -286,7 +286,7 @@ Press **Ctrl+C** to stop the test run.
 Install `cloudflared` as a system service so that it starts automatically on boot:
 
 ```bash
-sudo cloudflared service install
+sudo cloudflared --config ~/.cloudflared/config.yml service install
 sudo systemctl enable cloudflared
 sudo systemctl start cloudflared
 ```
@@ -396,7 +396,7 @@ Never commit the credentials file or `cert.pem` to version control.
 | `502 Bad Gateway` in browser | Dashboard not running on port 5000 | Start the dashboard: `python -m dashboard.app` |
 | CORS error in browser console | `CHAT_CORS_ORIGIN` not set or wrong domain | Set `CHAT_CORS_ORIGIN=https://storybot.intergalactic.it.com` and restart the bot |
 | Chat page shows "Could not reach the bot" | `CHAT_API_BASE` wrong or tunnel is down | Verify `CHAT_API_BASE` in `chat.html` and check `sudo systemctl status cloudflared` |
-| Tunnel stops after logout | Service not installed as systemd unit | Run `sudo cloudflared service install` |
+| Tunnel stops after logout | Service not installed as systemd unit | Run `sudo cloudflared --config ~/.cloudflared/config.yml service install` |
 | `cloudflared` not found after install | PATH issue | Use the full path `/usr/bin/cloudflared` or re-open your terminal |
 | `wget` not found on Pi | Package not installed | Run `sudo apt-get install -y wget` then retry |
 
