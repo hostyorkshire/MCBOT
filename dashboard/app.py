@@ -65,6 +65,7 @@ if _argv0 in ("flask", "flask.exe") and "run" in sys.argv[1:]:
 from flask import Blueprint, Flask, jsonify, render_template, request  # noqa: E402
 from flask_socketio import SocketIO  # noqa: E402
 
+from dashboard.active_stories import STORIES_FILE as ACTIVE_STORIES_FILE  # noqa: E402
 from dashboard.active_stories import load_stories  # noqa: E402
 from dashboard.state import STATE_FILE, get_session, get_sessions, get_status  # noqa: E402
 
@@ -278,31 +279,46 @@ socketio = SocketIO()
 
 
 def _state_watcher(app: Flask) -> None:
-    """Background thread: watch bot_state.json for changes and emit events.
+    """Background thread: watch bot_state.json and active_stories.json for changes.
 
     Runs inside the application context so that Flask-SocketIO helpers are
     accessible.  The thread is started by :func:`create_app` via
     ``socketio.start_background_task``.
+
+    A ``story_update`` event is emitted whenever either file's mtime changes,
+    so the dashboard refreshes instantly when a story finishes (written to
+    ``active_stories.json``) as well as when the live session state changes
+    (written to ``bot_state.json``).
     """
-    last_mtime: float | None = None
     poll_interval = 1.0  # seconds between file-stat checks
 
-    # Seed the initial mtime so the first loop iteration does not emit a
-    # spurious event before any real change has occurred.
+    # Seed both mtimes so the first loop iteration does not emit a spurious
+    # event before any real change has occurred.
     try:
-        last_mtime = os.path.getmtime(STATE_FILE)
+        last_mtime_state = os.path.getmtime(STATE_FILE)
     except OSError:
-        last_mtime = None
+        last_mtime_state = None
+
+    try:
+        last_mtime_stories = os.path.getmtime(ACTIVE_STORIES_FILE)
+    except OSError:
+        last_mtime_stories = None
 
     with app.app_context():
         while True:
             try:
-                mtime = os.path.getmtime(STATE_FILE)
+                mtime_state = os.path.getmtime(STATE_FILE)
             except OSError:
-                mtime = None
+                mtime_state = None
 
-            if mtime != last_mtime:
-                last_mtime = mtime
+            try:
+                mtime_stories = os.path.getmtime(ACTIVE_STORIES_FILE)
+            except OSError:
+                mtime_stories = None
+
+            if mtime_state != last_mtime_state or mtime_stories != last_mtime_stories:
+                last_mtime_state = mtime_state
+                last_mtime_stories = mtime_stories
                 merged: dict[str, dict] = {
                     s["user_key"]: s for s in load_stories() if s.get("user_key")
                 }
