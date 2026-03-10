@@ -30,6 +30,51 @@ cat << 'BANNER'
 BANNER
 
 # ---------------------------------------------------------------------------
+# Progress bar helpers
+# ---------------------------------------------------------------------------
+
+GREEN='\033[0;32m'
+RESET='\033[0m'
+PROGRESS_INCREMENT=5
+PROGRESS_MAX=90
+
+_bar() {
+    local pct=$1
+    local filled=$(( pct * 40 / 100 ))
+    local empty=$(( 40 - filled ))
+    local bar=""
+    local i
+    for (( i = 0; i < filled; i++ )); do bar+="█"; done
+    for (( i = 0; i < empty; i++ )); do bar+="░"; done
+    printf "\r${GREEN}[%s]${RESET} %3d%%" "${bar}" "${pct}"
+}
+
+run_with_progress() {
+    local label="$1"
+    shift
+    printf "%s\n" "${label}"
+    "$@" > /dev/null 2>&1 &
+    local pid=$!
+    local pct=0
+    while kill -0 "${pid}" 2>/dev/null; do
+        _bar "${pct}"
+        sleep 0.4
+        if [ "${pct}" -lt "${PROGRESS_MAX}" ]; then
+            pct=$(( pct + PROGRESS_INCREMENT ))
+        fi
+    done
+    wait "${pid}"
+    local exit_code=$?
+    if [ "${exit_code}" -eq 0 ]; then
+        _bar 100
+        printf "\n"
+    else
+        printf "\n"
+        return "${exit_code}"
+    fi
+}
+
+# ---------------------------------------------------------------------------
 # Resolve the absolute path of this script so that a reliable sudo command
 # can be printed (or used for auto re-exec) regardless of how the script was
 # invoked (./setup.sh, bash setup.sh, from another directory, etc.).
@@ -72,8 +117,8 @@ if [ -d "$VENV_DIR" ]; then
         exit 1
     fi
 else
-    echo "Creating virtual environment at ${VENV_DIR} ..."
-    if ! python3 -m venv "$VENV_DIR"; then
+    if ! run_with_progress "Creating virtual environment at ${VENV_DIR} ..." \
+            python3 -m venv "$VENV_DIR"; then
         echo "" >&2
         echo "ERROR: Failed to create the virtual environment." >&2
         echo "       Ensure python3-venv is installed:" >&2
@@ -82,8 +127,8 @@ else
     fi
 fi
 
-echo "Upgrading pip inside the virtual environment ..."
-"$VENV_DIR/bin/pip" install --quiet --upgrade pip
+run_with_progress "Upgrading pip inside the virtual environment ..." \
+    "$VENV_DIR/bin/pip" install --quiet --upgrade pip
 
 # Verify requirements.txt is present before attempting to install from it.
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -95,8 +140,8 @@ if [ ! -f "${SCRIPT_DIR}/requirements.txt" ]; then
     exit 1
 fi
 
-echo "Installing Python requirements into the virtual environment ..."
-if ! "$VENV_DIR/bin/pip" install --quiet -r requirements.txt; then
+if ! run_with_progress "Installing Python requirements into the virtual environment ..." \
+        "$VENV_DIR/bin/pip" install --quiet -r requirements.txt; then
     echo "" >&2
     echo "ERROR: Failed to install dependencies from requirements.txt." >&2
     echo "       Check the output above for details, then try:" >&2
@@ -104,11 +149,11 @@ if ! "$VENV_DIR/bin/pip" install --quiet -r requirements.txt; then
     exit 1
 fi
 
-echo "Installing dev requirements into the virtual environment ..."
-"$VENV_DIR/bin/pip" install --quiet -r requirements-dev.txt
+run_with_progress "Installing dev requirements into the virtual environment ..." \
+    "$VENV_DIR/bin/pip" install --quiet -r requirements-dev.txt
 
-echo "Installing dashboard requirements into the virtual environment ..."
-"$VENV_DIR/bin/pip" install --quiet -r dashboard/requirements.txt
+run_with_progress "Installing dashboard requirements into the virtual environment ..." \
+    "$VENV_DIR/bin/pip" install --quiet -r dashboard/requirements.txt
 
 # Verify that flask-socketio was installed correctly (quick import check).
 if ! "$VENV_DIR/bin/python" -c "import flask_socketio" 2>/dev/null; then
