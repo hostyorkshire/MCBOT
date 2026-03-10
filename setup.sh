@@ -407,6 +407,25 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Offer to run the Cloudflare Tunnel setup script
+# ---------------------------------------------------------------------------
+
+CF_TUNNEL_SCRIPT="$(cd "$(dirname "$0")" && pwd)/setup-cloudflare-tunnel.sh"
+if [ -f "${CF_TUNNEL_SCRIPT}" ]; then
+    printf "\n"
+    read -rp "Would you like to set up the Cloudflare Tunnel now? (y/N): " setup_cf
+    if [ "$setup_cf" = "y" ] || [ "$setup_cf" = "Y" ]; then
+        echo ""
+        echo "Launching Cloudflare Tunnel setup ..."
+        bash "${CF_TUNNEL_SCRIPT}"
+    else
+        echo ""
+        echo "You can set up the Cloudflare Tunnel later by running:"
+        echo "  bash \"${CF_TUNNEL_SCRIPT}\""
+    fi
+fi
+
+# ---------------------------------------------------------------------------
 # Final instructions
 # ---------------------------------------------------------------------------
 
