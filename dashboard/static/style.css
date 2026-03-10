@@ -331,6 +331,15 @@ footer a {
   margin: 0.3rem auto 0.1rem;
 }
 
+/* ── Source icon (LoRa / web) ────────────────────────────────────────── */
+.source-icon {
+  font-size: 0.85em;
+  margin-right: 0.25em;
+  cursor: default;
+  user-select: none;
+  flex-shrink: 0;
+}
+
 /* ── Responsive ─────────────────────────────────────────────────────── */
 @media (max-width: 600px) {
   .stories-table thead { display: none; }

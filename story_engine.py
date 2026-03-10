@@ -354,6 +354,7 @@ class Session:
         # Dashboard metadata
         self.genre: str = DEFAULT_GENRE
         self.started_at: float = time.time()
+        self.source: str = "lora"
 
     def add_message(self, role: str, content: str) -> None:
         """Append a message and prune history to *max_history* entries."""
@@ -428,6 +429,7 @@ class StoryEngine:
             "finished": session.finished,
             "awaiting_chapter_choice": session.awaiting_chapter_choice,
             "started_at": session.started_at,
+            "source": session.source,
             "history": session.get_messages(),
         }
 
