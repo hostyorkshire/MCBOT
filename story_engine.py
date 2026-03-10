@@ -56,14 +56,14 @@ _SYSTEM_PROMPT = (
     "1. Keep EVERY response under 220 characters total (including choices).\n"
     "2. End EVERY response with exactly 3 numbered choices, each on its own "
     "line, using the format '1.' '2.' '3.' — for example:\n"
-    "1. Go left\n"
-    "2. Hide\n"
-    "3. Call out\n"
+    "   1. Go left\n"
+    "   2. Hide\n"
+    "   3. Call out\n"
     "3. Use vivid but very short sentences.  No filler text.\n"
     "4. If the story reaches a definitive end, write [END] and offer:\n"
-    "1. Restart\n"
-    "2. New adventure\n"
-    "3. Quit"
+    "   1. Restart\n"
+    "   2. New adventure\n"
+    "   3. Quit"
 )
 
 #: System prompt used when doom reaches :data:`DOOM_MAX` or MAX_CHAPTERS is hit.
@@ -374,7 +374,7 @@ class StoryEngine:
 
     Args:
         api_key: Groq API key.
-        model: Groq model name (default ``"llama3-8b-8192"``).
+        model: Groq model name (default ``"llama-3.1-8b-instant"``).
         max_history: Maximum conversation turns to keep per session.
         max_tokens: Maximum tokens for each LLM response.
     """
