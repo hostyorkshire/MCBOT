@@ -272,7 +272,7 @@ success "CORS drop-in written: CHAT_CORS_ORIGIN=${CORS_ORIGIN}"
 step "Step 8 – Install cloudflared as a systemd Service (Autostart)"
 
 info "Installing cloudflared system service..."
-sudo cloudflared service install
+sudo cloudflared --config "${CONFIG_FILE}" service install
 sudo systemctl enable cloudflared
 sudo systemctl start cloudflared
 success "cloudflared service installed, enabled, and started."
