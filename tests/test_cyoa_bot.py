@@ -1150,7 +1150,7 @@ class TestBotHandlerStoryChoicesSplit:
         texts = _sent_texts(mc)
         # No intro; narrative and choices are the only messages
         assert texts[0] == "You wake in a cave."
-        assert texts[1] == "1. Explore\n2. Wait\n3. Shout\n\nOr tell me what to do."
+        assert texts[1] == "1. Explore\n2. Wait\n3. Shout"
 
     @pytest.mark.asyncio
     async def test_start_always_sends_narrative_and_choices(self, bot):
@@ -1171,7 +1171,7 @@ class TestBotHandlerStoryChoicesSplit:
         await handler.handle("hh88", "1", "Harriet")
         texts = _sent_texts(mc)
         assert texts[0] == "You step forward."
-        assert texts[1] == "1. Keep going\n2. Turn back\n3. Hide\n\nOr tell me what to do."
+        assert texts[1] == "1. Keep going\n2. Turn back\n3. Hide"
 
     @pytest.mark.asyncio
     async def test_non_story_response_single_message(self, bot):

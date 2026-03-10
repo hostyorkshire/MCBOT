@@ -725,8 +725,6 @@ class BotHandler:
             # Allow the radio channel to clear before sending the choices.
             await asyncio.sleep(self.chunk_delay)
         if choices:
-            if choices.startswith(("1. ", "1) ")):
-                choices = choices + "\n\nOr tell me what to do."
             await self._send(destination, choices)
 
     # ------------------------------------------------------------------
