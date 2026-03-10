@@ -62,10 +62,10 @@ if _argv0 in ("flask", "flask.exe") and "run" in sys.argv[1:]:
         "    bash dashboard/start-dashboard.sh\n"
     )
 
+import time as _time  # noqa: E402
+
 from flask import Blueprint, Flask, jsonify, render_template, request  # noqa: E402
 from flask_socketio import SocketIO  # noqa: E402
-
-import time as _time  # noqa: E402
 
 from dashboard.active_stories import STORIES_FILE as ACTIVE_STORIES_FILE  # noqa: E402
 from dashboard.active_stories import load_stories  # noqa: E402
@@ -113,19 +113,21 @@ def _append_history(user_id: str, role: str, content: str) -> None:
                 oldest_key = next(iter(_chat_sessions))
                 del _chat_sessions[oldest_key]
             _chat_sessions[user_id] = deque(maxlen=_CHAT_MAX_TURNS)
-            _upsert_story({
-                "user_key": user_id,
-                "user_name": "Web User",
-                "genre": "web",
-                "genre_name": "Web Chat",
-                "chapter": 1,
-                "scene_in_chapter": 0,
-                "doom": 0,
-                "finished": False,
-                "awaiting_chapter_choice": False,
-                "started_at": _time.time(),
-                "source": "web",
-            })
+            _upsert_story(
+                {
+                    "user_key": user_id,
+                    "user_name": "Web User",
+                    "genre": "web",
+                    "genre_name": "Web Chat",
+                    "chapter": 1,
+                    "scene_in_chapter": 0,
+                    "doom": 0,
+                    "finished": False,
+                    "awaiting_chapter_choice": False,
+                    "started_at": _time.time(),
+                    "source": "web",
+                }
+            )
         _chat_sessions[user_id].append({"role": role, "content": content})
 
 
