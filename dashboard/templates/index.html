@@ -195,7 +195,7 @@
         const storyUrl = STORY_BASE_URL.replace("__KEY__", encodeURIComponent(s.user_key));
         const tr = document.createElement("tr");
         tr.innerHTML = `
-          <td data-label="User"><a href="${storyUrl}">${escHtml(s.user_name)}</a></td>
+          <td data-label="User"><a href="${storyUrl}">${sourceIcon(s.source)}${escHtml(s.user_name)}</a></td>
           <td data-label="Genre"><span class="genre-tag">${escHtml(s.genre_name || s.genre)}</span></td>
           <td data-label="Chapter">${s.chapter}</td>
           <td data-label="Scene">${s.scene_in_chapter}</td>
@@ -228,6 +228,12 @@
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;");
+    }
+
+    // ── Source icon (LoRa vs web chat) ─────────────────────────────
+    function sourceIcon(source) {
+      if (source === "web") return '<span class="source-icon" title="Web Chat">🌐</span>';
+      return '<span class="source-icon" title="LoRa / MeshCore">📡</span>';
     }
 
     // ── Apply a full update from either live event or poll ─────────
