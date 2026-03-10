@@ -138,7 +138,13 @@ cloudflared --version
 cloudflared tunnel login
 ```
 
-> **SSH / headless note:** Because you are connected via SSH, no browser will open on the Pi.  Instead, `cloudflared` will print a URL in the terminal — copy and paste it into a browser on your laptop.  Log in to your Cloudflare account and select the domain `intergalactic.it.com`.  A certificate file is saved to `~/.cloudflared/cert.pem` on the Pi.
+> **SSH / headless note:** Because you are connected via SSH there is no desktop and no browser on the Pi.
+> When the command runs, `cloudflared` will print a line that says **"A browser window will open"** — **ignore that line**.
+> Instead, look for the long `https://dash.cloudflare.com/...` URL that appears immediately after it.
+> Copy that URL and paste it into a browser on **your laptop or another device**.
+> Log in to your Cloudflare account and select the domain `intergalactic.it.com`.
+> Once authorised, return to the terminal — it will continue automatically.
+> A certificate file is saved to `~/.cloudflared/cert.pem` on the Pi.
 
 ---
 
