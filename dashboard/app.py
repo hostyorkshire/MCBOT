@@ -137,19 +137,33 @@ def api_status():
     return jsonify(get_status())
 
 
+def _merge_stories() -> list[dict]:
+    """Merge persisted and active session data, newest-first (max 20).
+
+    Persisted entries from ``active_stories.json`` are loaded first.  Active
+    sessions from ``bot_state.json`` are layered on top **unless** the active
+    session is *not* finished while the persisted copy *is* finished.  In that
+    case the persisted (finished) entry wins — this prevents a stale
+    ``bot_state.json`` snapshot (written every ~5 s) from reverting a story
+    that has already been logged as finished.
+    """
+    merged: dict[str, dict] = {s["user_key"]: s for s in load_stories() if s.get("user_key")}
+    for session in get_sessions():
+        uk = session.get("user_key")
+        if not uk:
+            continue
+        # Never let a stale unfinished session overwrite a finished record.
+        if not session.get("finished") and uk in merged and merged[uk].get("finished"):
+            continue
+        merged[uk] = session
+    stories = sorted(merged.values(), key=lambda s: s.get("started_at", 0), reverse=True)
+    return stories[:20]
+
+
 @bp.route("/api/stories")
 def api_stories():
     """Return last 20 story sessions (active, finished, or restarted) as JSON."""
-    # Start with the persisted log of finished/restarted sessions.
-    merged: dict[str, dict] = {s["user_key"]: s for s in load_stories() if s.get("user_key")}
-    # Override with currently active sessions (most up-to-date data).
-    for session in get_sessions():
-        uk = session.get("user_key")
-        if uk:
-            merged[uk] = session
-    # Return newest-first, capped at 20.
-    stories = sorted(merged.values(), key=lambda s: s.get("started_at", 0), reverse=True)
-    return jsonify(stories[:20])
+    return jsonify(_merge_stories())
 
 
 @bp.route("/story/<user_key>")
@@ -319,19 +333,9 @@ def _state_watcher(app: Flask) -> None:
             if mtime_state != last_mtime_state or mtime_stories != last_mtime_stories:
                 last_mtime_state = mtime_state
                 last_mtime_stories = mtime_stories
-                merged: dict[str, dict] = {
-                    s["user_key"]: s for s in load_stories() if s.get("user_key")
-                }
-                for session in get_sessions():
-                    uk = session.get("user_key")
-                    if uk:
-                        merged[uk] = session
-                stories = sorted(
-                    merged.values(), key=lambda s: s.get("started_at", 0), reverse=True
-                )
                 payload = {
                     "status": get_status(),
-                    "stories": stories[:20],
+                    "stories": _merge_stories(),
                 }
                 socketio.emit("story_update", payload)
 
