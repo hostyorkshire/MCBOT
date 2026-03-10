@@ -37,10 +37,36 @@ info()    { echo -e "${YELLOW}[INFO]  $*${RESET}"; }
 success() { echo -e "${GREEN}[✓]    $*${RESET}"; }
 error()   { echo -e "${RED}[ERROR] $*${RESET}" >&2; }
 
+warn_box() {
+    echo ""
+    echo -e "${YELLOW}  ┌─────────────────────────────────────────────────────────────────┐${RESET}"
+    while IFS= read -r line; do
+        printf "${YELLOW}  │  %-63s│${RESET}\n" "$line"
+    done <<< "$1"
+    echo -e "${YELLOW}  └─────────────────────────────────────────────────────────────────┘${RESET}"
+    echo ""
+}
+
+pause_and_confirm() {
+    echo -e "${YELLOW}  Press Enter to continue, or Ctrl+C to abort...${RESET}"
+    read -r _PAUSE_INPUT
+}
+
+_STEP_TOTAL=8
+
 step() {
     echo ""
     echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
-    echo -e "${YELLOW}  $*${RESET}"
+    case "$1" in
+        Step\ [0-9]*)
+            _STEPN="${1#Step }"
+            _STEPN="${_STEPN%% –*}"
+            echo -e "${YELLOW}  [ Step ${_STEPN} of ${_STEP_TOTAL} ] $*${RESET}"
+            ;;
+        *)
+            echo -e "${YELLOW}  $*${RESET}"
+            ;;
+    esac
     echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
 }
 
@@ -69,6 +95,8 @@ TUNNEL_NAME="${TUNNEL_NAME:-mcbot-tunnel}"
 
 read -r -p "  Bot API subdomain              [apistorybot.intergalactic.it.com]: " BOT_API_SUBDOMAIN
 BOT_API_SUBDOMAIN="${BOT_API_SUBDOMAIN:-apistorybot.intergalactic.it.com}"
+# Short label used in manual DNS instructions (e.g. "apistorybot" from "apistorybot.example.com")
+BOT_API_NAME="${BOT_API_SUBDOMAIN%%.*}"
 
 read -r -p "  CORS origin (website domain)   [https://storybot.intergalactic.it.com]: " CORS_ORIGIN
 CORS_ORIGIN="${CORS_ORIGIN:-https://storybot.intergalactic.it.com}"
@@ -213,20 +241,79 @@ fi
 # Step 3 – Create a Named Tunnel
 # ---------------------------------------------------------------------------
 step "Step 3 – Create a Named Tunnel"
+pause_and_confirm
 
-info "Creating tunnel '${TUNNEL_NAME}'..."
-TUNNEL_OUTPUT="$(cloudflared tunnel create "${TUNNEL_NAME}" 2>&1)"
-echo "${TUNNEL_OUTPUT}"
+# Check if tunnel already exists
+TUNNEL_ID=""
+if cloudflared tunnel list 2>/dev/null | grep -q "${TUNNEL_NAME}"; then
+    warn_box "⚠  TUNNEL ALREADY EXISTS
 
-TUNNEL_ID="$(echo "${TUNNEL_OUTPUT}" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -n1)"
+A tunnel named '${TUNNEL_NAME}' already exists in your
+Cloudflare account.
 
-if [[ -z "${TUNNEL_ID}" ]]; then
-    error "Could not extract tunnel ID from the output above."
-    error "Check that the tunnel was created with: cloudflared tunnel list"
-    exit 1
+This usually means you have run this script before.
+
+Options:
+  Y  – Use the existing tunnel (recommended for re-runs)
+  N  – You will then be asked if you want to delete it"
+
+    read -r -p "  Use the existing tunnel? [Y/n]: " USE_EXISTING
+    USE_EXISTING="${USE_EXISTING:-Y}"
+    if [[ "${USE_EXISTING}" =~ ^[Yy]$ ]]; then
+        # Try JSON output first; fall back to text grep if python3 unavailable
+        TUNNEL_ID="$(cloudflared tunnel list --output json 2>/dev/null \
+            | python3 -c "
+import sys, json
+tunnels = json.load(sys.stdin)
+match = next((t['id'] for t in tunnels if t['name'] == '${TUNNEL_NAME}'), '')
+print(match)
+" 2>/dev/null)" || TUNNEL_ID=""
+        if [[ -z "${TUNNEL_ID}" ]]; then
+            TUNNEL_ID="$(cloudflared tunnel list 2>/dev/null \
+                | grep "${TUNNEL_NAME}" \
+                | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' \
+                | head -n1)" || TUNNEL_ID=""
+        fi
+        if [[ -z "${TUNNEL_ID}" ]]; then
+            error "Could not determine tunnel ID."
+            error "Run 'cloudflared tunnel list' to see your tunnels, then re-run this script."
+            exit 1
+        fi
+        success "Using existing tunnel ID: ${TUNNEL_ID}"
+    else
+        read -r -p "  Delete it and recreate? [y/N]: " DELETE_AND_RECREATE
+        DELETE_AND_RECREATE="${DELETE_AND_RECREATE:-N}"
+        if [[ "${DELETE_AND_RECREATE}" =~ ^[Yy]$ ]]; then
+            info "Deleting existing tunnel '${TUNNEL_NAME}'..."
+            cloudflared tunnel delete -f "${TUNNEL_NAME}"
+            info "Creating tunnel '${TUNNEL_NAME}'..."
+            TUNNEL_OUTPUT="$(cloudflared tunnel create "${TUNNEL_NAME}" 2>&1)"
+            echo "${TUNNEL_OUTPUT}"
+            TUNNEL_ID="$(echo "${TUNNEL_OUTPUT}" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -n1)"
+            if [[ -z "${TUNNEL_ID}" ]]; then
+                error "Could not extract tunnel ID from the output above."
+                error "Run 'cloudflared tunnel list' to see your tunnels, then re-run this script."
+                exit 1
+            fi
+            success "Tunnel created. Tunnel ID: ${TUNNEL_ID}"
+        else
+            error "Cannot continue without a tunnel. Aborting."
+            error "Run 'cloudflared tunnel list' to review your tunnels and re-run this script."
+            exit 1
+        fi
+    fi
+else
+    info "Creating tunnel '${TUNNEL_NAME}'..."
+    TUNNEL_OUTPUT="$(cloudflared tunnel create "${TUNNEL_NAME}" 2>&1)"
+    echo "${TUNNEL_OUTPUT}"
+    TUNNEL_ID="$(echo "${TUNNEL_OUTPUT}" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -n1)"
+    if [[ -z "${TUNNEL_ID}" ]]; then
+        error "Could not extract tunnel ID from the output above."
+        error "Run 'cloudflared tunnel list' to see your tunnels, then re-run this script."
+        exit 1
+    fi
+    success "Tunnel created. Tunnel ID: ${TUNNEL_ID}"
 fi
-
-success "Tunnel created. Tunnel ID: ${TUNNEL_ID}"
 
 CREDS_FILE="/home/${LINUX_USER}/.cloudflared/${TUNNEL_ID}.json"
 
@@ -234,16 +321,73 @@ CREDS_FILE="/home/${LINUX_USER}/.cloudflared/${TUNNEL_ID}.json"
 # Step 4 – Create the DNS CNAME Record
 # ---------------------------------------------------------------------------
 step "Step 4 – Create the DNS CNAME Record"
+pause_and_confirm
 
 info "Creating CNAME: ${BOT_API_SUBDOMAIN} → ${TUNNEL_ID}.cfargotunnel.com"
-cloudflared tunnel route dns "${TUNNEL_NAME}" "${BOT_API_SUBDOMAIN}"
-success "DNS CNAME record created (or already exists)."
-info "Verify in Cloudflare dashboard: DNS → Records → look for '${BOT_API_SUBDOMAIN}'."
+DNS_OUTPUT="$(cloudflared tunnel route dns "${TUNNEL_NAME}" "${BOT_API_SUBDOMAIN}" 2>&1)" && DNS_EXIT=0 || DNS_EXIT=$?
+echo "${DNS_OUTPUT}"
+if [[ ${DNS_EXIT} -eq 0 ]]; then
+    success "DNS CNAME record created automatically."
+elif echo "${DNS_OUTPUT}" | grep -qiE 'already exist|record already'; then
+    success "DNS CNAME already exists — skipping."
+else
+    warn_box "⚠  AUTOMATIC DNS SETUP FAILED
+
+cloudflared could not create the DNS record automatically.
+This can happen when the domain's DNS zone is not accessible
+via the certificate you authenticated with, or if the zone
+is managed by a different Cloudflare account.
+
+You need to add the record manually:
+
+  1. Go to https://dash.cloudflare.com/
+  2. Select your domain (the part after the first dot in:
+       ${BOT_API_SUBDOMAIN})
+  3. Click DNS → Records → + Add record
+  4. Fill in exactly:
+       Type   : CNAME
+       Name   : ${BOT_API_NAME}
+       Target : ${TUNNEL_ID}.cfargotunnel.com
+       Proxy  : Enabled (orange cloud ☁  — IMPORTANT)
+  5. Click Save
+
+The orange cloud (proxied) setting is required for the
+tunnel to work. Do NOT set it to DNS-only (grey cloud)."
+
+    read -r -p "  Have you added the DNS record manually in Cloudflare? [y/N]: " DNS_MANUAL
+    DNS_MANUAL="${DNS_MANUAL:-N}"
+    if [[ ! "${DNS_MANUAL}" =~ ^[Yy]$ ]]; then
+        error "DNS record is required to continue."
+        error "Add it in the Cloudflare dashboard, then re-run this script."
+        exit 1
+    fi
+    success "Noted — continuing with manually configured DNS."
+fi
+
+# Verify the DNS route is visible to cloudflared
+info "Verifying DNS route registration with cloudflared..."
+CF_TUNNEL_INFO="$(cloudflared tunnel info "${TUNNEL_NAME}" 2>&1)" || CF_TUNNEL_INFO=""
+if echo "${CF_TUNNEL_INFO}" | grep -qi "${BOT_API_SUBDOMAIN}"; then
+    success "DNS route confirmed via 'cloudflared tunnel info'."
+else
+    echo ""
+    info "Route not yet visible via 'cloudflared tunnel info' — this is normal."
+    info "DNS changes can take a few minutes to propagate."
+    echo ""
+    echo -e "${YELLOW}  To verify manually in the Cloudflare dashboard:${RESET}"
+    echo "    1. Go to https://dash.cloudflare.com/"
+    echo "    2. Select your domain → DNS → Records"
+    echo "    3. Look for a CNAME named '${BOT_API_NAME}'"
+    echo "       pointing to '${TUNNEL_ID}.cfargotunnel.com'"
+    echo "    4. The Proxy column should show an orange cloud ☁"
+    echo ""
+fi
 
 # ---------------------------------------------------------------------------
 # Step 5 – Create the Config File
 # ---------------------------------------------------------------------------
 step "Step 5 – Create ~/.cloudflared/config.yml"
+pause_and_confirm
 
 CONFIG_FILE="${HOME}/.cloudflared/config.yml"
 
@@ -284,6 +428,7 @@ fi
 # Step 6 – Update systemd dashboard CORS drop-in
 # ---------------------------------------------------------------------------
 step "Step 6 – Enable CORS on the Flask Backend (systemd drop-in)"
+pause_and_confirm
 
 DROPIN_DIR="/etc/systemd/system/dashboard.service.d"
 DROPIN_FILE="${DROPIN_DIR}/cors.conf"
@@ -307,12 +452,91 @@ success "CORS drop-in written: CHAT_CORS_ORIGIN=${CORS_ORIGIN}"
 # Step 8 – Install cloudflared as a systemd service (Autostart)
 # ---------------------------------------------------------------------------
 step "Step 8 – Install cloudflared as a systemd Service (Autostart)"
+pause_and_confirm
 
-info "Installing cloudflared system service..."
-sudo cloudflared --config "${CONFIG_FILE}" service install
-sudo systemctl enable cloudflared
-sudo systemctl start cloudflared
-success "cloudflared service installed, enabled, and started."
+if systemctl list-unit-files 2>/dev/null | grep -q cloudflared; then
+    warn_box "⚠  CLOUDFLARED SERVICE ALREADY INSTALLED
+
+The cloudflared systemd service already exists.
+
+Options:
+  Y  – Re-install / overwrite (will restart service)
+  N  – Skip install, just restart the existing service"
+
+    read -r -p "  Re-install the service? [y/N]: " REINSTALL_SERVICE
+    REINSTALL_SERVICE="${REINSTALL_SERVICE:-N}"
+    if [[ "${REINSTALL_SERVICE}" =~ ^[Yy]$ ]]; then
+        info "Re-installing cloudflared system service..."
+        sudo cloudflared --config "${CONFIG_FILE}" service install
+        sudo systemctl enable cloudflared
+        sudo systemctl restart cloudflared
+        success "cloudflared service re-installed, enabled, and restarted."
+    else
+        info "Skipping service install — restarting existing service..."
+        sudo systemctl restart cloudflared
+        sudo systemctl enable cloudflared
+        success "cloudflared service restarted and enabled."
+    fi
+else
+    info "Installing cloudflared system service..."
+    sudo cloudflared --config "${CONFIG_FILE}" service install
+    sudo systemctl enable cloudflared
+    sudo systemctl start cloudflared
+    success "cloudflared service installed, enabled, and started."
+fi
+
+# ---------------------------------------------------------------------------
+# Health check — give the service a moment to connect
+# ---------------------------------------------------------------------------
+info "Waiting 4 seconds for cloudflared to initialise..."
+sleep 4
+
+if systemctl is-active cloudflared > /dev/null 2>&1; then
+    success "cloudflared service is active and running."
+    # Show a brief tunnel info snapshot so the user can see connections
+    CF_HEALTH="$(cloudflared tunnel info "${TUNNEL_NAME}" 2>&1)" || CF_HEALTH=""
+    if [[ -n "${CF_HEALTH}" ]]; then
+        echo ""
+        echo "${CF_HEALTH}"
+        echo ""
+    fi
+    echo -e "${GREEN}  ┌─────────────────────────────────────────────────────────────────┐${RESET}"
+    echo -e "${GREEN}  │  ✓  VERIFY IN CLOUDFLARE DASHBOARD                             │${RESET}"
+    echo -e "${GREEN}  │                                                                 │${RESET}"
+    echo -e "${GREEN}  │  1. Go to https://dash.cloudflare.com/                         │${RESET}"
+    echo -e "${GREEN}  │  2. Open Zero Trust → Networks → Tunnels                       │${RESET}"
+    echo -e "${GREEN}  │  3. Find your tunnel — Status should be HEALTHY                │${RESET}"
+    echo -e "${GREEN}  │     (a green dot next to the tunnel name)                      │${RESET}"
+    echo -e "${GREEN}  │  4. Click the tunnel name → check the Connectors tab           │${RESET}"
+    echo -e "${GREEN}  │     — you should see at least one active connection             │${RESET}"
+    echo -e "${GREEN}  └─────────────────────────────────────────────────────────────────┘${RESET}"
+    echo -e "${GREEN}     Tunnel name: ${TUNNEL_NAME}${RESET}"
+    echo ""
+else
+    echo ""
+    echo -e "${RED}  ┌─────────────────────────────────────────────────────────────────┐${RESET}"
+    echo -e "${RED}  │  ✗  CLOUDFLARED SERVICE FAILED TO START                        │${RESET}"
+    echo -e "${RED}  │                                                                 │${RESET}"
+    echo -e "${RED}  │  The service is not running. To diagnose:                      │${RESET}"
+    echo -e "${RED}  │                                                                 │${RESET}"
+    echo -e "${RED}  │    sudo systemctl status cloudflared                           │${RESET}"
+    echo -e "${RED}  │    journalctl -u cloudflared -n 50 --no-pager                  │${RESET}"
+    echo -e "${RED}  │                                                                 │${RESET}"
+    echo -e "${RED}  │  Common causes:                                                │${RESET}"
+    echo -e "${RED}  │    • Config file missing or wrong tunnel ID                    │${RESET}"
+    echo -e "${RED}  │    • Credentials (.json) file missing or unreadable            │${RESET}"
+    echo -e "${RED}  │    • Tunnel ID mismatch  →  run: cloudflared tunnel list       │${RESET}"
+    echo -e "${RED}  │                                                                 │${RESET}"
+    echo -e "${RED}  │  In Cloudflare dashboard the tunnel will show as INACTIVE:     │${RESET}"
+    echo -e "${RED}  │    https://dash.cloudflare.com/ → Zero Trust →                 │${RESET}"
+    echo -e "${RED}  │    Networks → Tunnels → find your tunnel name                  │${RESET}"
+    echo -e "${RED}  └─────────────────────────────────────────────────────────────────┘${RESET}"
+    echo -e "${RED}     Tunnel name: ${TUNNEL_NAME}${RESET}"
+    echo ""
+    error "Config file    : ${CONFIG_FILE}"
+    error "Credentials    : ${CREDS_FILE}"
+    error "Fix the issue above and re-run: sudo systemctl start cloudflared"
+fi
 
 # ---------------------------------------------------------------------------
 # Final Summary
@@ -348,6 +572,88 @@ echo "    # or send a test message:"
 echo "    curl -X POST https://${BOT_API_SUBDOMAIN}/chat \\"
 echo "      -H \"Content-Type: application/json\" \\"
 echo "      -d '{\"message\":\"hello\",\"user_id\":\"00000000-0000-0000-0000-000000000001\"}'"
+echo ""
+
+# ---------------------------------------------------------------------------
+# Cloudflare dashboard verification checklist
+# ---------------------------------------------------------------------------
+echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+echo -e "${GREEN}  Cloudflare Dashboard Verification Checklist${RESET}"
+echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+echo ""
+echo -e "${GREEN}  Open https://dash.cloudflare.com/ and check each item below.${RESET}"
+echo ""
+echo -e "${GREEN}  1. Tunnel health${RESET}"
+echo "     Path  : Zero Trust → Networks → Tunnels"
+echo "     Look  : '${TUNNEL_NAME}' should show a green HEALTHY status"
+echo "     Note  : If it shows INACTIVE, the service is not running on this Pi."
+echo "             Run: sudo systemctl status cloudflared"
+echo ""
+echo -e "${GREEN}  2. DNS record${RESET}"
+echo "     Path  : Your domain → DNS → Records"
+echo "     Look  : A CNAME named '${BOT_API_NAME}'"
+echo "             pointing to '${TUNNEL_ID}.cfargotunnel.com'"
+echo "             with an orange cloud (Proxied)"
+echo "     Note  : If missing, run on this Pi:"
+echo "             cloudflared tunnel route dns ${TUNNEL_NAME} ${BOT_API_SUBDOMAIN}"
+echo "             or add it manually as described above."
+echo ""
+echo -e "${GREEN}  3. Tunnel connectors${RESET}"
+echo "     Path  : Zero Trust → Networks → Tunnels → click '${TUNNEL_NAME}'"
+echo "     Look  : Under the Connectors tab — at least one connector"
+echo "             should appear with a green dot"
+echo "     Note  : If no connectors, check logs:"
+echo "             journalctl -u cloudflared -n 50 --no-pager"
+echo ""
+echo -e "${GREEN}  4. Public hostname (optional check)${RESET}"
+echo "     Path  : Zero Trust → Networks → Tunnels → '${TUNNEL_NAME}' → Public Hostnames"
+echo "     Look  : '${BOT_API_SUBDOMAIN}' → http://localhost:${FLASK_PORT}"
+echo "     Note  : The script uses a config file, so this tab may be empty —"
+echo "             that is normal. The curl test above is the definitive check."
+echo ""
+
+# ---------------------------------------------------------------------------
+# How it all connects – Pi dependency explained
+# ---------------------------------------------------------------------------
+echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+echo -e "${GREEN}  Will the chat work on the website now?${RESET}"
+echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+echo ""
+echo -e "${GREEN}  YES — once the Pi is on and the service is running, the full path is:${RESET}"
+echo ""
+echo "    Browser (${CORS_ORIGIN})"
+echo "       ↓  sends chat messages to https://${BOT_API_SUBDOMAIN}"
+echo "    Cloudflare Edge (DNS / CNAME)"
+echo "       ↓  routes traffic through the encrypted tunnel"
+echo "    cloudflared on this Pi  (systemd service, auto-starts on boot)"
+echo "       ↓  forwards requests to localhost:${FLASK_PORT}"
+echo "    Flask bot app on this Pi"
+echo "       ↓  generates a response and sends it back up the same path"
+echo "    Browser receives the reply"
+echo ""
+echo -e "${YELLOW}  ⚠  The Pi Zero MUST be powered on and connected to the internet.${RESET}"
+echo -e "${YELLOW}     If the Pi is off or the service stops, the website chat will return${RESET}"
+echo -e "${YELLOW}     a '502 Bad Gateway' or 'Failed to fetch' error — because there is${RESET}"
+echo -e "${YELLOW}     nothing on the other end of the tunnel to answer requests.${RESET}"
+echo ""
+echo -e "${GREEN}  Keeping it running reliably:${RESET}"
+echo "    • The cloudflared service is set to start automatically on Pi boot"
+echo "    • To check it is running at any time:"
+echo "        sudo systemctl status cloudflared"
+echo "    • To check the bot Flask app is running:"
+echo "        sudo systemctl status dashboard"
+echo "    • To restart both after a crash or config change:"
+echo "        sudo systemctl restart cloudflared dashboard"
+echo ""
+echo -e "${GREEN}  Quick remote health check (run from any computer):${RESET}"
+echo ""
+echo "    curl -s -o /dev/null -w '%{http_code}' https://${BOT_API_SUBDOMAIN}/chat \\"
+echo "      -X POST -H 'Content-Type: application/json' \\"
+echo "      -d '{\"message\":\"ping\",\"user_id\":\"00000000-0000-0000-0000-000000000001\"}'"
+echo ""
+echo "    200 or 400  →  Pi is up and the tunnel is working"
+echo "    502 / 503   →  Tunnel is up but Flask app is not running on the Pi"
+echo "    000 / curl error  →  Tunnel is down (Pi is off or cloudflared crashed)"
 echo ""
 success "All done! The Cloudflare Tunnel for '${TUNNEL_NAME}' is up and running."
 echo ""
