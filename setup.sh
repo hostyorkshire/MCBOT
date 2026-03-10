@@ -171,6 +171,9 @@ else
     MAX_CHUNK_SIZE=$(grep 'MAX_CHUNK_SIZE' .env.example | cut -d '=' -f2- | xargs)
     CHUNK_DELAY=$(grep 'CHUNK_DELAY' .env.example | cut -d '=' -f2- | xargs)
     MAX_HISTORY=$(grep 'MAX_HISTORY' .env.example | cut -d '=' -f2- | xargs)
+    SEND_RETRIES=$(grep 'SEND_RETRIES' .env.example | cut -d '=' -f2- | xargs)
+    SEND_RETRY_BASE_DELAY=$(grep 'SEND_RETRY_BASE_DELAY' .env.example | cut -d '=' -f2- | xargs)
+    SEND_RETRY_MAX_DELAY=$(grep 'SEND_RETRY_MAX_DELAY' .env.example | cut -d '=' -f2- | xargs)
 
     # Prompt for each variable
     read -rp "GROQ_API_KEY (Default: $GROQ_API_KEY): " input
@@ -194,6 +197,12 @@ else
     CHUNK_DELAY=${input:-$CHUNK_DELAY}
     read -rp "MAX_HISTORY (Default: $MAX_HISTORY): " input
     MAX_HISTORY=${input:-$MAX_HISTORY}
+    read -rp "SEND_RETRIES (Default: $SEND_RETRIES): " input
+    SEND_RETRIES=${input:-$SEND_RETRIES}
+    read -rp "SEND_RETRY_BASE_DELAY (Default: $SEND_RETRY_BASE_DELAY): " input
+    SEND_RETRY_BASE_DELAY=${input:-$SEND_RETRY_BASE_DELAY}
+    read -rp "SEND_RETRY_MAX_DELAY (Default: $SEND_RETRY_MAX_DELAY): " input
+    SEND_RETRY_MAX_DELAY=${input:-$SEND_RETRY_MAX_DELAY}
 
     # Write to .env file
 
@@ -207,6 +216,9 @@ else
         echo "MAX_CHUNK_SIZE=$MAX_CHUNK_SIZE"
         echo "CHUNK_DELAY=$CHUNK_DELAY"
         echo "MAX_HISTORY=$MAX_HISTORY"
+        echo "SEND_RETRIES=$SEND_RETRIES"
+        echo "SEND_RETRY_BASE_DELAY=$SEND_RETRY_BASE_DELAY"
+        echo "SEND_RETRY_MAX_DELAY=$SEND_RETRY_MAX_DELAY"
     } >> .env
 fi
 

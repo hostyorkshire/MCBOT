@@ -41,3 +41,9 @@ dashboard/bot_state.json.tmp
 # Dashboard persistent story log (written at runtime; not for version control)
 dashboard/active_stories.json
 dashboard/active_stories.json.tmp
+
+# Dashboard error log (written by start-dashboard.sh on startup failure)
+dashboard/dashboard-error.log
+
+# Generated helper script (created by setup.sh)
+dashboard.sh

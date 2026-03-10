@@ -1,0 +1,39 @@
+name: Tests
+
+on:
+  push:
+    paths:
+      - '**.py'
+      - 'pyproject.toml'
+      - 'requirements*.txt'
+      - 'dashboard/requirements.txt'
+      - '.github/workflows/test.yml'
+  pull_request:
+    paths:
+      - '**.py'
+      - 'pyproject.toml'
+      - 'requirements*.txt'
+      - 'dashboard/requirements.txt'
+      - '.github/workflows/test.yml'
+
+jobs:
+  pytest:
+    name: pytest
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install --quiet -r requirements.txt
+          pip install --quiet -r requirements-dev.txt
+          pip install --quiet -r dashboard/requirements.txt
+
+      - name: Run tests
+        run: pytest tests/
