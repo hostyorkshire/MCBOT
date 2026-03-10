@@ -22,10 +22,11 @@ uWSGI process is required.
     real-time live updates.  Always start the dashboard via
     ``python -m dashboard.app`` or ``bash dashboard/start-dashboard.sh``.
 
-The dashboard is served at ``/dashboard/`` and exposes two JSON API endpoints:
+The dashboard is served at ``/dashboard/`` and exposes three JSON API endpoints:
 
 * ``/dashboard/api/status``  – bot status (running/idle/offline, uptime, errors)
 * ``/dashboard/api/stories`` – last 20 story sessions (active, finished, or restarted)
+* ``/dashboard/api/sysinfo`` – system stats (CPU, RAM, disk, Raspberry Pi temperature)
 
 Real-time updates are delivered via Socket.IO.  Whenever ``bot_state.json``
 changes on disk a ``story_update`` event is broadcast to all connected clients
@@ -182,6 +183,64 @@ def _merge_stories() -> list[dict]:
 def api_stories():
     """Return last 20 story sessions (active, finished, or restarted) as JSON."""
     return jsonify(_merge_stories())
+
+
+def get_sysinfo() -> dict:
+    """Return system stats as a dictionary.
+
+    Collects CPU usage, RAM, and disk stats via *psutil* (already listed in
+    ``dashboard/requirements.txt``) and the Raspberry Pi CPU temperature from
+    ``/sys/class/thermal/thermal_zone0/temp``.
+
+    If *psutil* is not installed the numeric fields are returned as ``None``.
+    If the temperature file is absent (non-Pi host) ``cpu_temp_available`` is
+    ``False`` and ``cpu_temp_c`` is ``None``.  All exceptions are caught so
+    the function always returns a valid dict.
+    """
+    info: dict = {
+        "cpu_percent": None,
+        "ram_used_mb": None,
+        "ram_total_mb": None,
+        "ram_percent": None,
+        "disk_used_gb": None,
+        "disk_total_gb": None,
+        "disk_percent": None,
+        "cpu_temp_c": None,
+        "cpu_temp_available": False,
+    }
+
+    try:
+        import psutil
+
+        # interval=None returns a non-blocking snapshot of the accumulated CPU
+        # stats since the last call.  Blocking with a short interval would stall
+        # the eventlet greenlet and delay every broadcast / HTTP response.
+        info["cpu_percent"] = psutil.cpu_percent(interval=None)
+        vm = psutil.virtual_memory()
+        info["ram_used_mb"] = round(vm.used / 1024**2)
+        info["ram_total_mb"] = round(vm.total / 1024**2)
+        info["ram_percent"] = vm.percent
+        disk = psutil.disk_usage("/")
+        info["disk_used_gb"] = round(disk.used / 1024**3, 1)
+        info["disk_total_gb"] = round(disk.total / 1024**3, 1)
+        info["disk_percent"] = disk.percent
+    except Exception:
+        pass
+
+    try:
+        with open("/sys/class/thermal/thermal_zone0/temp") as _f:
+            info["cpu_temp_c"] = round(int(_f.read().strip()) / 1000, 1)
+            info["cpu_temp_available"] = True
+    except Exception:
+        pass
+
+    return info
+
+
+@bp.route("/api/sysinfo")
+def api_sysinfo():
+    """Return system stats (CPU, RAM, disk, Pi temperature) as JSON."""
+    return jsonify(get_sysinfo())
 
 
 @bp.route("/story/<user_key>")
@@ -354,6 +413,7 @@ def _state_watcher(app: Flask) -> None:
                 payload = {
                     "status": get_status(),
                     "stories": _merge_stories(),
+                    "sysinfo": get_sysinfo(),
                 }
                 socketio.emit("story_update", payload)
 
