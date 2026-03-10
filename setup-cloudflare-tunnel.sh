@@ -284,8 +284,29 @@ print(match)
         read -r -p "  Delete it and recreate? [y/N]: " DELETE_AND_RECREATE
         DELETE_AND_RECREATE="${DELETE_AND_RECREATE:-N}"
         if [[ "${DELETE_AND_RECREATE}" =~ ^[Yy]$ ]]; then
+            # Capture old tunnel ID before deletion so we can clean up its credential file
+            OLD_TUNNEL_ID="$(cloudflared tunnel list --output json 2>/dev/null \
+                | python3 -c "
+import sys, json
+tunnels = json.load(sys.stdin)
+for t in tunnels:
+    if t.get('name') == '${TUNNEL_NAME}':
+        print(t.get('id', ''))
+        break
+" 2>/dev/null)" || OLD_TUNNEL_ID=""
+            if [[ -z "${OLD_TUNNEL_ID}" ]]; then
+                OLD_TUNNEL_ID="$(cloudflared tunnel list 2>/dev/null \
+                    | grep "${TUNNEL_NAME}" \
+                    | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' \
+                    | head -n1)" || OLD_TUNNEL_ID=""
+            fi
             info "Deleting existing tunnel '${TUNNEL_NAME}'..."
             cloudflared tunnel delete -f "${TUNNEL_NAME}"
+            # Remove stale credential file left behind by the deleted tunnel
+            if [[ -n "${OLD_TUNNEL_ID}" && -f "/home/${LINUX_USER}/.cloudflared/${OLD_TUNNEL_ID}.json" ]]; then
+                info "Removing stale credentials file for old tunnel ${OLD_TUNNEL_ID}..."
+                rm -f "/home/${LINUX_USER}/.cloudflared/${OLD_TUNNEL_ID}.json"
+            fi
             info "Creating tunnel '${TUNNEL_NAME}'..."
             TUNNEL_OUTPUT="$(cloudflared tunnel create "${TUNNEL_NAME}" 2>&1)"
             echo "${TUNNEL_OUTPUT}"
@@ -296,6 +317,7 @@ print(match)
                 exit 1
             fi
             success "Tunnel created. Tunnel ID: ${TUNNEL_ID}"
+            TUNNEL_WAS_RECREATED=true
         else
             error "Cannot continue without a tunnel. Aborting."
             error "Run 'cloudflared tunnel list' to review your tunnels and re-run this script."
@@ -329,7 +351,46 @@ echo "${DNS_OUTPUT}"
 if [[ ${DNS_EXIT} -eq 0 ]]; then
     success "DNS CNAME record created automatically."
 elif echo "${DNS_OUTPUT}" | grep -qiE 'already exist|record already'; then
-    success "DNS CNAME already exists — skipping."
+    if [[ "${TUNNEL_WAS_RECREATED:-false}" == "true" ]]; then
+        # Stale CNAME from the deleted tunnel — try to overwrite it atomically
+        info "Stale CNAME detected (tunnel was recreated). Attempting to overwrite..."
+        OVERWRITE_OUTPUT="$(cloudflared tunnel route dns --overwrite-dns "${TUNNEL_NAME}" "${BOT_API_SUBDOMAIN}" 2>&1)" && OVERWRITE_EXIT=0 || OVERWRITE_EXIT=$?
+        echo "${OVERWRITE_OUTPUT}"
+        if [[ ${OVERWRITE_EXIT} -eq 0 ]]; then
+            success "Stale CNAME replaced successfully."
+        else
+            warn_box "⚠  STALE CNAME DETECTED — ACTION REQUIRED
+
+The tunnel was recreated with a new ID, but an old CNAME record
+still exists in Cloudflare DNS pointing to the previous tunnel.
+
+Automatic overwrite also failed (your version of cloudflared may
+not support --overwrite-dns).
+
+You must delete the old record manually before continuing:
+  1. Go to https://dash.cloudflare.com/
+  2. Select your domain → DNS → Records
+  3. Delete the CNAME named '${BOT_API_NAME}'
+     (it points to the OLD tunnel ID, not ${TUNNEL_ID})
+  4. Then add a new CNAME record:
+       Type   : CNAME
+       Name   : ${BOT_API_NAME}
+       Target : ${TUNNEL_ID}.cfargotunnel.com
+       Proxy  : Enabled (orange cloud ☁  — IMPORTANT)
+  5. Click Save"
+
+            read -r -p "  Have you deleted the old CNAME and added the new one? [y/N]: " DNS_STALE_FIXED
+            DNS_STALE_FIXED="${DNS_STALE_FIXED:-N}"
+            if [[ ! "${DNS_STALE_FIXED}" =~ ^[Yy]$ ]]; then
+                error "DNS record must point to the new tunnel ID to continue."
+                error "Fix it in the Cloudflare dashboard, then re-run this script."
+                exit 1
+            fi
+            success "Noted — continuing with manually updated DNS."
+        fi
+    else
+        success "DNS CNAME already exists — skipping."
+    fi
 else
     warn_box "⚠  AUTOMATIC DNS SETUP FAILED
 
