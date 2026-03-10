@@ -187,9 +187,6 @@ DOOM_MAX: int = 500
 #: Number of scenes per chapter before a chapter-choice prompt is triggered.
 SCENES_PER_CHAPTER: int = 150
 
-#: Kept for reference; no longer used to gate chapter transitions.
-CHAPTER_COOLDOWN: float = 86400.0
-
 #: Maximum number of chapters before a forced peril finale.
 MAX_CHAPTERS: int = 10
 

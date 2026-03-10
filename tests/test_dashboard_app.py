@@ -45,9 +45,7 @@ class TestStateWatcher:
         with (
             patch("os.path.getmtime", mock_getmtime),
             patch.object(socketio, "sleep", mock_sleep),
-            patch.object(
-                socketio, "emit", lambda event, data: emissions.append((event, data))
-            ),
+            patch.object(socketio, "emit", lambda event, data: emissions.append((event, data))),
             patch("dashboard.app.load_stories", return_value=[]),
             patch("dashboard.app.get_sessions", return_value=[]),
             patch("dashboard.app.get_status", return_value={"status": "offline"}),
@@ -76,9 +74,7 @@ class TestStateWatcher:
         with (
             patch("os.path.getmtime", mock_getmtime),
             patch.object(socketio, "sleep", mock_sleep),
-            patch.object(
-                socketio, "emit", lambda event, data: emissions.append((event, data))
-            ),
+            patch.object(socketio, "emit", lambda event, data: emissions.append((event, data))),
             patch("dashboard.app.load_stories", return_value=[]),
             patch("dashboard.app.get_sessions", return_value=[]),
             patch("dashboard.app.get_status", return_value={"status": "offline"}),
@@ -111,9 +107,7 @@ class TestStateWatcher:
         with (
             patch("os.path.getmtime", mock_getmtime),
             patch.object(socketio, "sleep", mock_sleep),
-            patch.object(
-                socketio, "emit", lambda event, data: emissions.append((event, data))
-            ),
+            patch.object(socketio, "emit", lambda event, data: emissions.append((event, data))),
             patch("dashboard.app.load_stories", return_value=[]),
             patch("dashboard.app.get_sessions", return_value=[]),
             patch("dashboard.app.get_status", return_value={"status": "offline"}),
