@@ -37,10 +37,37 @@ info()    { echo -e "${YELLOW}[INFO]  $*${RESET}"; }
 success() { echo -e "${GREEN}[✓]    $*${RESET}"; }
 error()   { echo -e "${RED}[ERROR] $*${RESET}" >&2; }
 
+warn_box() {
+    echo ""
+    echo -e "${YELLOW}  ┌─────────────────────────────────────────────────────────────────┐${RESET}"
+    while IFS= read -r line; do
+        printf "${YELLOW}  │  %-63s│${RESET}\n" "$line"
+    done <<< "$1"
+    echo -e "${YELLOW}  └─────────────────────────────────────────────────────────────────┘${RESET}"
+    echo ""
+}
+
+pause_and_confirm() {
+    echo -e "${YELLOW}  Press Enter to continue, or Ctrl+C to abort...${RESET}"
+    read -r _PAUSE_INPUT
+}
+
+_STEP_NUM=0
+_STEP_TOTAL=8
+
 step() {
     echo ""
     echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
-    echo -e "${YELLOW}  $*${RESET}"
+    case "$1" in
+        Step\ [0-9]*)
+            _STEPN="${1#Step }"
+            _STEPN="${_STEPN%% –*}"
+            echo -e "${YELLOW}  [ Step ${_STEPN} of ${_STEP_TOTAL} ] $*${RESET}"
+            ;;
+        *)
+            echo -e "${YELLOW}  $*${RESET}"
+            ;;
+    esac
     echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
 }
 
@@ -213,20 +240,66 @@ fi
 # Step 3 – Create a Named Tunnel
 # ---------------------------------------------------------------------------
 step "Step 3 – Create a Named Tunnel"
+pause_and_confirm
 
-info "Creating tunnel '${TUNNEL_NAME}'..."
-TUNNEL_OUTPUT="$(cloudflared tunnel create "${TUNNEL_NAME}" 2>&1)"
-echo "${TUNNEL_OUTPUT}"
+# Check if tunnel already exists
+TUNNEL_ID=""
+if cloudflared tunnel list 2>/dev/null | grep -q "${TUNNEL_NAME}"; then
+    warn_box "⚠  TUNNEL ALREADY EXISTS
 
-TUNNEL_ID="$(echo "${TUNNEL_OUTPUT}" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -n1)"
+A tunnel named '${TUNNEL_NAME}' already exists in your
+Cloudflare account.
 
-if [[ -z "${TUNNEL_ID}" ]]; then
-    error "Could not extract tunnel ID from the output above."
-    error "Check that the tunnel was created with: cloudflared tunnel list"
-    exit 1
+This usually means you have run this script before.
+
+Options:
+  Y  – Use the existing tunnel (recommended for re-runs)
+  N  – You will then be asked if you want to delete it"
+
+    read -r -p "  Use the existing tunnel? [Y/n]: " USE_EXISTING
+    USE_EXISTING="${USE_EXISTING:-Y}"
+    if [[ "${USE_EXISTING}" =~ ^[Yy]$ ]]; then
+        TUNNEL_ID="$(cloudflared tunnel list --output json 2>/dev/null | python3 -c "import sys,json; tunnels=json.load(sys.stdin); print(next(t['id'] for t in tunnels if t['name']=='${TUNNEL_NAME}'))" 2>/dev/null || cloudflared tunnel list 2>/dev/null | grep "${TUNNEL_NAME}" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -n1)"
+        if [[ -z "${TUNNEL_ID}" ]]; then
+            error "Could not determine tunnel ID."
+            error "Run 'cloudflared tunnel list' to see your tunnels, then re-run this script."
+            exit 1
+        fi
+        success "Using existing tunnel ID: ${TUNNEL_ID}"
+    else
+        read -r -p "  Delete it and recreate? [y/N]: " DELETE_AND_RECREATE
+        DELETE_AND_RECREATE="${DELETE_AND_RECREATE:-N}"
+        if [[ "${DELETE_AND_RECREATE}" =~ ^[Yy]$ ]]; then
+            info "Deleting existing tunnel '${TUNNEL_NAME}'..."
+            cloudflared tunnel delete -f "${TUNNEL_NAME}"
+            info "Creating tunnel '${TUNNEL_NAME}'..."
+            TUNNEL_OUTPUT="$(cloudflared tunnel create "${TUNNEL_NAME}" 2>&1)"
+            echo "${TUNNEL_OUTPUT}"
+            TUNNEL_ID="$(echo "${TUNNEL_OUTPUT}" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -n1)"
+            if [[ -z "${TUNNEL_ID}" ]]; then
+                error "Could not extract tunnel ID from the output above."
+                error "Run 'cloudflared tunnel list' to see your tunnels, then re-run this script."
+                exit 1
+            fi
+            success "Tunnel created. Tunnel ID: ${TUNNEL_ID}"
+        else
+            error "Cannot continue without a tunnel. Aborting."
+            error "Run 'cloudflared tunnel list' to review your tunnels and re-run this script."
+            exit 1
+        fi
+    fi
+else
+    info "Creating tunnel '${TUNNEL_NAME}'..."
+    TUNNEL_OUTPUT="$(cloudflared tunnel create "${TUNNEL_NAME}" 2>&1)"
+    echo "${TUNNEL_OUTPUT}"
+    TUNNEL_ID="$(echo "${TUNNEL_OUTPUT}" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -n1)"
+    if [[ -z "${TUNNEL_ID}" ]]; then
+        error "Could not extract tunnel ID from the output above."
+        error "Run 'cloudflared tunnel list' to see your tunnels, then re-run this script."
+        exit 1
+    fi
+    success "Tunnel created. Tunnel ID: ${TUNNEL_ID}"
 fi
-
-success "Tunnel created. Tunnel ID: ${TUNNEL_ID}"
 
 CREDS_FILE="/home/${LINUX_USER}/.cloudflared/${TUNNEL_ID}.json"
 
@@ -234,16 +307,26 @@ CREDS_FILE="/home/${LINUX_USER}/.cloudflared/${TUNNEL_ID}.json"
 # Step 4 – Create the DNS CNAME Record
 # ---------------------------------------------------------------------------
 step "Step 4 – Create the DNS CNAME Record"
+pause_and_confirm
 
 info "Creating CNAME: ${BOT_API_SUBDOMAIN} → ${TUNNEL_ID}.cfargotunnel.com"
-cloudflared tunnel route dns "${TUNNEL_NAME}" "${BOT_API_SUBDOMAIN}"
-success "DNS CNAME record created (or already exists)."
+DNS_OUTPUT="$(cloudflared tunnel route dns "${TUNNEL_NAME}" "${BOT_API_SUBDOMAIN}" 2>&1)" && DNS_EXIT=0 || DNS_EXIT=$?
+echo "${DNS_OUTPUT}"
+if [[ ${DNS_EXIT} -eq 0 ]]; then
+    success "DNS CNAME record created."
+elif echo "${DNS_OUTPUT}" | grep -qiE 'already exists?|record already'; then
+    success "DNS CNAME already exists — skipping."
+else
+    error "Failed to create DNS CNAME record. See output above."
+    exit 1
+fi
 info "Verify in Cloudflare dashboard: DNS → Records → look for '${BOT_API_SUBDOMAIN}'."
 
 # ---------------------------------------------------------------------------
 # Step 5 – Create the Config File
 # ---------------------------------------------------------------------------
 step "Step 5 – Create ~/.cloudflared/config.yml"
+pause_and_confirm
 
 CONFIG_FILE="${HOME}/.cloudflared/config.yml"
 
@@ -284,6 +367,7 @@ fi
 # Step 6 – Update systemd dashboard CORS drop-in
 # ---------------------------------------------------------------------------
 step "Step 6 – Enable CORS on the Flask Backend (systemd drop-in)"
+pause_and_confirm
 
 DROPIN_DIR="/etc/systemd/system/dashboard.service.d"
 DROPIN_FILE="${DROPIN_DIR}/cors.conf"
@@ -307,12 +391,38 @@ success "CORS drop-in written: CHAT_CORS_ORIGIN=${CORS_ORIGIN}"
 # Step 8 – Install cloudflared as a systemd service (Autostart)
 # ---------------------------------------------------------------------------
 step "Step 8 – Install cloudflared as a systemd Service (Autostart)"
+pause_and_confirm
 
-info "Installing cloudflared system service..."
-sudo cloudflared --config "${CONFIG_FILE}" service install
-sudo systemctl enable cloudflared
-sudo systemctl start cloudflared
-success "cloudflared service installed, enabled, and started."
+if systemctl list-unit-files 2>/dev/null | grep -q cloudflared; then
+    warn_box "⚠  CLOUDFLARED SERVICE ALREADY INSTALLED
+
+The cloudflared systemd service already exists.
+
+Options:
+  Y  – Re-install / overwrite (will restart service)
+  N  – Skip install, just restart the existing service"
+
+    read -r -p "  Re-install the service? [y/N]: " REINSTALL_SERVICE
+    REINSTALL_SERVICE="${REINSTALL_SERVICE:-N}"
+    if [[ "${REINSTALL_SERVICE}" =~ ^[Yy]$ ]]; then
+        info "Re-installing cloudflared system service..."
+        sudo cloudflared --config "${CONFIG_FILE}" service install
+        sudo systemctl enable cloudflared
+        sudo systemctl restart cloudflared
+        success "cloudflared service re-installed, enabled, and restarted."
+    else
+        info "Skipping service install — restarting existing service..."
+        sudo systemctl restart cloudflared
+        sudo systemctl enable cloudflared
+        success "cloudflared service restarted and enabled."
+    fi
+else
+    info "Installing cloudflared system service..."
+    sudo cloudflared --config "${CONFIG_FILE}" service install
+    sudo systemctl enable cloudflared
+    sudo systemctl start cloudflared
+    success "cloudflared service installed, enabled, and started."
+fi
 
 # ---------------------------------------------------------------------------
 # Final Summary
