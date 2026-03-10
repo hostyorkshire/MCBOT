@@ -527,6 +527,9 @@ Options:
     read -r -p "  Re-install the service? [y/N]: " REINSTALL_SERVICE
     REINSTALL_SERVICE="${REINSTALL_SERVICE:-N}"
     if [[ "${REINSTALL_SERVICE}" =~ ^[Yy]$ ]]; then
+        info "Uninstalling existing cloudflared system service..."
+        sudo cloudflared service uninstall || true
+        sudo systemctl daemon-reload
         info "Re-installing cloudflared system service..."
         sudo mkdir -p /etc/cloudflared
         sudo cp "${CONFIG_FILE}" /etc/cloudflared/config.yml
