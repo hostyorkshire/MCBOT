@@ -27,7 +27,6 @@ serial.  Story text is generated in real time by the free tier of the
 - [Web Dashboard](#web-dashboard)
 - [Cloudflare Tunnel (Public HTTPS Access)](#cloudflare-tunnel-public-https-access)
 - [Running Tests](#running-tests)
-- [Diagnostics and Monitoring (`mcbot_monitor.py`)](#diagnostics-and-monitoring-mcbot_monitorpy)
 - [Radio Configuration Tool (`meshcore_radio_config.py`)](#radio-configuration-tool-meshcore_radio_configpy)
 - [Running as a systemd Service (Linux / Auto-start on Reboot)](#running-as-a-systemd-service-linux-auto-start-on-reboot)
 - [Architecture](#architecture)
@@ -60,7 +59,6 @@ serial.  Story text is generated in real time by the free tier of the
 ```
 MCBOT/
 ├── cyoa_bot.py                    # Main entry point – MeshCore event loop
-├── mcbot_monitor.py               # Diagnostic / monitoring helper (see below)
 ├── meshcore_radio_config.py       # Radio configuration tool (see below)
 ├── story_engine.py                # Groq LLM session management
 ├── utils.py                       # Message chunking helpers
@@ -81,7 +79,6 @@ MCBOT/
     ├── test_cyoa_bot.py
     ├── test_story_engine.py
     ├── test_utils.py
-    ├── test_mcbot_monitor.py
     └── test_meshcore_radio_config.py
 ```
 
@@ -167,7 +164,7 @@ The wizard will:
   `systemctl enable`, and `systemctl start` for each service, then prints the
   live `systemctl status` output so you can confirm both are active before you
   leave the terminal.
-- Optionally launch `mcbot_monitor.py --info` to verify the setup.
+- Optionally verify the setup by running the bot manually.
 
 ### Step 5 – (Manual alternative to the wizard)
 
@@ -342,13 +339,13 @@ When you need to replace your Groq API key (e.g. it was accidentally exposed):
 
 | Package | Version | Required by |
 |---|---|---|
-| `meshcore` | `>=2.0.0` | `cyoa_bot.py`, `mcbot_monitor.py` |
+| `meshcore` | `>=2.0.0` | `cyoa_bot.py` |
 | `groq` | `>=1.0.0` | `story_engine.py` |
-| `python-dotenv` | `>=1.0.0` | `cyoa_bot.py`, `mcbot_monitor.py` |
+| `python-dotenv` | `>=1.0.0` | `cyoa_bot.py` |
 | `pyserial` | `>=3.5` | `meshcore_radio_config.py` |
 | `pytest` | `>=8.0.0` | tests |
 | `pytest-asyncio` | `>=0.24.0` | tests |
-| `psutil` | `>=5.9.0` | `mcbot_monitor.py` |
+| `psutil` | `>=5.9.0` | `dashboard/app.py` |
 | `flask` | `>=3.0.0` | `dashboard/app.py` |
 | `flask-socketio` | `>=5.3.0,<6` | `dashboard/app.py` (real-time updates) |
 | `python-socketio` | `>=5.3.0,<6` | `dashboard/app.py` (EIO4 protocol) |
@@ -470,168 +467,6 @@ CORS origin, Flask port, and Linux username (sensible defaults are provided).
 .venv/bin/pip install -r requirements-dev.txt
 .venv/bin/python -m pytest
 ```
-
----
-
-## Diagnostics and Monitoring (`mcbot_monitor.py`)
-
-`mcbot_monitor.py` is a standalone helper for debugging bot connectivity
-issues – especially useful when the LoRa radio receives messages but the bot
-does not respond.
-
-> **Note:** If you used `setup.sh`, all dependencies (including `psutil`) are
-> already installed in `.venv` — no extra step needed.  If you set up
-> manually, install dev dependencies first:
->
-> ```bash
-> .venv/bin/pip install -r requirements-dev.txt
-> ```
-
-### Available modes
-
-| Flag | Description |
-|---|---|
-| `--info` | Print system info (CPU, RAM, disk, uptime, Python/platform) and environment summary (`GROQ_API_KEY` masked). Also tests Groq API reachability. |
-| `--list-serial` | List all `/dev/ttyUSB*`, `/dev/ttyACM*`, `/dev/ttyS*` devices with permissions. Highlights whether the configured `SERIAL_PORT` is present and accessible. |
-| `--listen` | Connect to MeshCore and print **all** incoming events with timestamps and payloads. Press Ctrl+C or let `--duration` expire to stop. |
-| `--send-test PUBKEY_PREFIX` | Connect to MeshCore and send a single test message to the specified pubkey prefix. |
-| `--text "…"` | Message text for `--send-test` (default: `mcbot monitor test`). |
-| `--duration SECONDS` | How long to listen with `--listen` (default: `30`). |
-| `--debug` | With `--listen`: print the full raw JSON payload for every event. |
-| `--watch-start` | With `--listen`: print a highlighted banner whenever an inbound message is a `start`/`new`/`begin` command (including with a leading `/` or `!` prefix). |
-
-### Example commands
-
-```bash
-# 1. Check system health and environment (safe, no hardware required)
-.venv/bin/python mcbot_monitor.py --info
-
-# 2. List serial devices and check if your user can access them
-.venv/bin/python mcbot_monitor.py --list-serial
-
-# 3. Watch all incoming events for 60 seconds
-#    (stop cyoa_bot.py first – only one process can hold the serial port)
-.venv/bin/python mcbot_monitor.py --listen --duration 60
-
-# 4. Watch specifically for start commands with a highlighted banner
-.venv/bin/python mcbot_monitor.py --listen --duration 120 --watch-start
-
-# 5. Show raw JSON payloads for every event (useful for firmware debugging)
-.venv/bin/python mcbot_monitor.py --listen --duration 60 --debug
-
-# 6. Send a one-off test message to confirm the outbound path works
-.venv/bin/python mcbot_monitor.py --send-test <PUBKEY_PREFIX> --text "hello from monitor"
-
-# 7. Run without flags to get both help text and --info output
-.venv/bin/python mcbot_monitor.py
-```
-
-### Verifying that a `start` command is received
-
-Use this workflow to confirm the full path from radio to bot command handler
-**without** modifying any code:
-
-1. **Stop the bot** so the monitor can open the serial port:
-
-   ```bash
-   # If running as a systemd service:
-   sudo systemctl stop mcbot
-
-   # If running directly: press Ctrl+C in the terminal running cyoa_bot.py.
-   ```
-
-2. **Start the monitor** in watch-start mode:
-
-   ```bash
-   .venv/bin/python mcbot_monitor.py --listen --duration 120 --watch-start
-   ```
-
-3. **Send `start`** from a MeshCore client to the bot node.
-
-4. **Expected output** – you should see something like:
-
-   ```
-   [2024-07-01T12:00:05.123] EVENT: CONTACT_MSG_RECV
-     ├─ from       : ab12cd34
-     ├─ message    : 'start'
-     ★★★ START COMMAND DETECTED ★★★  (normalised: 'start')
-   ```
-
-   The `★★★` banner confirms the message arrived at the serial layer **and**
-   that the bot's command normaliser would recognise it (even with a leading
-   `/` or `!` prefix such as `/start`).
-
-5. If the `CONTACT_MSG_RECV` event appears but the bot does **not** respond,
-   check the bot logs:
-
-   ```bash
-   sudo journalctl -u mcbot -f
-   ```
-
-   Look for lines containing `"Start command from"` — this is logged
-   immediately when the bot receives a recognised start command.
-
-6. If **no** `CONTACT_MSG_RECV` event appears, the problem is at the radio or
-   serial layer. Re-check `SERIAL_PORT`, the `dialout` group membership, and
-   whether the MeshCore firmware is running on the device.
-
-### What to look for on a Raspberry Pi
-
-**Bot not responding at all?**
-
-1. Run `--info` and confirm `GROQ_API_KEY` is set and the Groq API is
-   reachable. If not, the bot will refuse to start.
-2. Run `--list-serial` and confirm the device matches `SERIAL_PORT` and your
-   user has read/write permission (must be in the `dialout` group – see
-   [Step 3](#step-3--add-your-user-to-the-dialout-group)).
-3. Stop the bot or service, then run
-   `--listen --watch-start --duration 60` while sending a `start` message
-   from a LoRa node. If the `★★★` banner appears, the hardware path is
-   working — restart the bot and check its logs. If **no** events appear at
-   all, the problem is at the serial/radio layer.
-
-**Bot responds sometimes but not others?**
-
-Watch the event summary printed after `--listen` finishes. Look for
-`DISCONNECTED` events or a high rate of `ERROR` events, which can indicate
-an unstable serial connection.
-
-**Permission denied when opening the serial port?**
-
-```bash
-sudo usermod -a -G dialout $USER
-newgrp dialout      # apply immediately; log out and back in to make it permanent
-```
-
-**`ConnectionError` on startup (no device found)?**
-
-When `cyoa_bot.py` cannot connect it automatically scans for candidate serial
-devices and prints a diagnostic:
-
-```
-Could not connect to MeshCore device on /dev/ttyUSB0 (baud 115200).
-
-Candidate serial devices found on this system:
-  /dev/ttyACM0
-
-Troubleshooting hints:
-  • Ensure your user is in the 'dialout' group:
-      sudo usermod -a -G dialout $USER && newgrp dialout
-  • Check device permissions:
-      ls -l /dev/ttyUSB0
-      ls -l /dev/ttyACM0
-  • Try an alternate port, e.g.:  --port /dev/ttyACM0
-```
-
-Use the suggested `--port` flag to try an alternate device without editing
-`.env`:
-
-```bash
-.venv/bin/python cyoa_bot.py --port /dev/ttyACM0
-```
-
-If no candidate devices appear at all, check USB cable / device power and run
-`dmesg | tail -20` to see whether the kernel detected the device.
 
 ---
 

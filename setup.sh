@@ -104,7 +104,7 @@ if ! "$VENV_DIR/bin/pip" install --quiet -r requirements.txt; then
     exit 1
 fi
 
-echo "Installing dev/monitor requirements into the virtual environment ..."
+echo "Installing dev requirements into the virtual environment ..."
 "$VENV_DIR/bin/pip" install --quiet -r requirements-dev.txt
 
 echo "Installing dashboard requirements into the virtual environment ..."
@@ -390,20 +390,22 @@ chmod +x "${DASHBOARD_SH}"
 echo "dashboard.sh helper written to ${DASHBOARD_SH}"
 
 # ---------------------------------------------------------------------------
-# Offer to start the mcbot monitor
+# Offer to run the Cloudflare Tunnel setup script
 # ---------------------------------------------------------------------------
 
-printf "\n"
-read -rp "Would you like to start the mcbot monitor now? (y/N): " start_monitor
-if [ "$start_monitor" = "y" ] || [ "$start_monitor" = "Y" ]; then
-    echo ""
-    echo "Starting mcbot monitor ..."
-    "$VENV_DIR/bin/python" mcbot_monitor.py --info || true
-else
-    echo ""
-    echo "You can run the monitor at any time with:"
-    echo "  ${VENV_DIR}/bin/python mcbot_monitor.py --info"
-    echo "  ${VENV_DIR}/bin/python mcbot_monitor.py --list-serial"
+CF_TUNNEL_SCRIPT="$(cd "$(dirname "$0")" && pwd)/setup-cloudflare-tunnel.sh"
+if [ -f "${CF_TUNNEL_SCRIPT}" ]; then
+    printf "\n"
+    read -rp "Would you like to set up the Cloudflare Tunnel now? (y/N): " setup_cf
+    if [ "$setup_cf" = "y" ] || [ "$setup_cf" = "Y" ]; then
+        echo ""
+        echo "Launching Cloudflare Tunnel setup ..."
+        bash "${CF_TUNNEL_SCRIPT}"
+    else
+        echo ""
+        echo "You can set up the Cloudflare Tunnel later by running:"
+        echo "  bash \"${CF_TUNNEL_SCRIPT}\""
+    fi
 fi
 
 # ---------------------------------------------------------------------------

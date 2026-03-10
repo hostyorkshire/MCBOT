@@ -560,7 +560,7 @@ def run_interactive_menu(port: str, baud: int = DEFAULT_BAUD_RATE) -> None:
             "  Possible causes:\n"
             "  • Port is already in use (stop cyoa_bot.py first)\n"
             "  • Device not connected or firmware not running\n"
-            "  • Wrong port – run mcbot_monitor.py --list-serial to see devices",
+            "  • Wrong port – check /dev/ttyUSB* and /dev/ttyACM* to see devices",
             file=sys.stderr,
         )
         sys.exit(1)
