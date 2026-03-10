@@ -169,8 +169,45 @@ echo -e "${YELLOW}  │  on the Pi once you have authorised the domain.         
 echo -e "${YELLOW}  └─────────────────────────────────────────────────────────────────┘${RESET}"
 echo ""
 
-cloudflared tunnel login
-success "Authentication complete. Credentials saved to ~/.cloudflared/cert.pem"
+CERT_FILE="${HOME}/.cloudflared/cert.pem"
+
+if [[ -f "${CERT_FILE}" ]]; then
+    echo ""
+    echo -e "${YELLOW}  ┌─────────────────────────────────────────────────────────────────┐${RESET}"
+    echo -e "${YELLOW}  │  ⚠  EXISTING CERTIFICATE DETECTED                              │${RESET}"
+    echo -e "${YELLOW}  │                                                                 │${RESET}"
+    echo -e "${YELLOW}  │  A certificate already exists at:                              │${RESET}"
+    echo -e "${YELLOW}  │    ~/.cloudflared/cert.pem                                     │${RESET}"
+    echo -e "${YELLOW}  │                                                                 │${RESET}"
+    echo -e "${YELLOW}  │  If this is a re-run, the old cert may belong to a stale       │${RESET}"
+    echo -e "${YELLOW}  │  tunnel.  Before deleting it locally, clean up Cloudflare:     │${RESET}"
+    echo -e "${YELLOW}  │                                                                 │${RESET}"
+    echo -e "${YELLOW}  │    1. Go to https://dash.cloudflare.com/                       │${RESET}"
+    echo -e "${YELLOW}  │    2. Open Zero Trust → Networks → Tunnels                     │${RESET}"
+    echo -e "${YELLOW}  │    3. Delete any old or stale tunnel entries there first.      │${RESET}"
+    echo -e "${YELLOW}  │    4. Then return here and answer 'y' below to delete the      │${RESET}"
+    echo -e "${YELLOW}  │       local cert.pem and re-authenticate.                      │${RESET}"
+    echo -e "${YELLOW}  │                                                                 │${RESET}"
+    echo -e "${YELLOW}  │  If you answer 'n', the existing certificate will be used      │${RESET}"
+    echo -e "${YELLOW}  │  and the login step will be skipped.                           │${RESET}"
+    echo -e "${YELLOW}  └─────────────────────────────────────────────────────────────────┘${RESET}"
+    echo ""
+
+    read -r -p "  Do you want to delete the existing cert.pem and re-authenticate? [y/N]: " REAUTH
+    REAUTH="${REAUTH:-N}"
+    if [[ "${REAUTH}" =~ ^[Yy]$ ]]; then
+        rm -f "${CERT_FILE}"
+        info "Deleted ${CERT_FILE}. Proceeding with authentication..."
+        cloudflared tunnel login
+        success "Authentication complete. Credentials saved to ~/.cloudflared/cert.pem"
+    else
+        info "Keeping existing certificate. Skipping login step."
+        success "Using existing credentials at ${CERT_FILE}."
+    fi
+else
+    cloudflared tunnel login
+    success "Authentication complete. Credentials saved to ~/.cloudflared/cert.pem"
+fi
 
 # ---------------------------------------------------------------------------
 # Step 3 – Create a Named Tunnel
