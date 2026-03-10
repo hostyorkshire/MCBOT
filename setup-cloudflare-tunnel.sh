@@ -528,7 +528,9 @@ Options:
     REINSTALL_SERVICE="${REINSTALL_SERVICE:-N}"
     if [[ "${REINSTALL_SERVICE}" =~ ^[Yy]$ ]]; then
         info "Re-installing cloudflared system service..."
-        sudo cloudflared --config "${CONFIG_FILE}" service install
+        sudo mkdir -p /etc/cloudflared
+        sudo cp "${CONFIG_FILE}" /etc/cloudflared/config.yml
+        sudo cloudflared --config /etc/cloudflared/config.yml service install
         sudo systemctl enable cloudflared
         sudo systemctl restart cloudflared
         success "cloudflared service re-installed, enabled, and restarted."
@@ -540,7 +542,9 @@ Options:
     fi
 else
     info "Installing cloudflared system service..."
-    sudo cloudflared --config "${CONFIG_FILE}" service install
+    sudo mkdir -p /etc/cloudflared
+    sudo cp "${CONFIG_FILE}" /etc/cloudflared/config.yml
+    sudo cloudflared --config /etc/cloudflared/config.yml service install
     sudo systemctl enable cloudflared
     sudo systemctl start cloudflared
     success "cloudflared service installed, enabled, and started."
