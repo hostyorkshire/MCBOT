@@ -644,7 +644,41 @@ sudo systemctl restart dashboard || info "Note: 'dashboard' service not found or
 success "CORS drop-in written: CHAT_CORS_ORIGIN=${CORS_ORIGIN}"
 
 # ---------------------------------------------------------------------------
-# Step 7 (test) is printed in the summary below
+# Step 7 – Test the Tunnel and CORS
+# ---------------------------------------------------------------------------
+step "Step 7 – Test the Tunnel and CORS"
+
+echo ""
+echo -e "${YELLOW}  Run the tunnel in the foreground to confirm it connects:${RESET}"
+echo ""
+echo "    cloudflared tunnel run ${TUNNEL_NAME}"
+echo ""
+echo -e "${YELLOW}  You should see output similar to:${RESET}"
+echo "    INF Starting tunnel tunnelID=${TUNNEL_ID}"
+echo "    INF Registered tunnel connection connIndex=0"
+echo ""
+echo -e "${YELLOW}  While the tunnel is running, verify the CORS headers with curl:${RESET}"
+echo ""
+echo "    curl -i -X OPTIONS https://${BOT_API_SUBDOMAIN}/chat \\"
+echo "      -H \"Origin: ${CORS_ORIGIN}\" \\"
+echo "      -H \"Access-Control-Request-Method: POST\""
+echo ""
+echo -e "${YELLOW}  The response should include:${RESET}"
+echo "    Access-Control-Allow-Origin: ${CORS_ORIGIN}"
+echo "    Access-Control-Allow-Methods: POST, OPTIONS"
+echo ""
+echo -e "${YELLOW}  Or send a test message directly:${RESET}"
+echo ""
+echo "    curl -X POST https://${BOT_API_SUBDOMAIN}/chat \\"
+echo "      -H \"Content-Type: application/json\" \\"
+echo "      -d '{\"message\":\"hello\",\"user_id\":\"00000000-0000-0000-0000-000000000001\"}'"
+echo ""
+echo -e "${YELLOW}  Press Ctrl+C in the other terminal to stop the test run when done.${RESET}"
+echo ""
+
+pause_and_confirm
+
+# ---------------------------------------------------------------------------
 # Step 8 – Install cloudflared as a systemd service (Autostart)
 # ---------------------------------------------------------------------------
 step "Step 8 – Install cloudflared as a systemd Service (Autostart)"
@@ -795,17 +829,6 @@ echo "    Check tunnel status  : sudo systemctl status cloudflared"
 echo "    View tunnel logs     : journalctl -u cloudflared -f"
 echo "    Check dashboard CORS : sudo systemctl show dashboard | grep CHAT_CORS"
 echo "    List all tunnels     : cloudflared tunnel list"
-echo ""
-echo -e "${GREEN}  Step 7 – Verify the tunnel with curl:${RESET}"
-echo ""
-echo "    curl -i -X OPTIONS https://${BOT_API_SUBDOMAIN}/chat \\"
-echo "      -H \"Origin: ${CORS_ORIGIN}\" \\"
-echo "      -H \"Access-Control-Request-Method: POST\""
-echo ""
-echo "    # or send a test message:"
-echo "    curl -X POST https://${BOT_API_SUBDOMAIN}/chat \\"
-echo "      -H \"Content-Type: application/json\" \\"
-echo "      -d '{\"message\":\"hello\",\"user_id\":\"00000000-0000-0000-0000-000000000001\"}'"
 echo ""
 
 # ---------------------------------------------------------------------------
