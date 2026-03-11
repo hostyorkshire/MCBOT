@@ -515,7 +515,8 @@ success "CORS drop-in written: CHAT_CORS_ORIGIN=${CORS_ORIGIN}"
 step "Step 8 – Install cloudflared as a systemd Service (Autostart)"
 pause_and_confirm
 
-if systemctl list-unit-files 2>/dev/null | grep -q cloudflared; then
+if systemctl list-unit-files 2>/dev/null | grep -q cloudflared \
+   || ls /etc/systemd/system/cloudflared* >/dev/null 2>&1; then
     warn_box "⚠  CLOUDFLARED SERVICE ALREADY INSTALLED
 
 The cloudflared systemd service already exists.
@@ -545,6 +546,9 @@ Options:
     fi
 else
     info "Installing cloudflared system service..."
+    # Clean up any leftover cloudflared service files that systemctl missed
+    sudo cloudflared service uninstall 2>/dev/null || true
+    sudo systemctl daemon-reload
     sudo mkdir -p /etc/cloudflared
     sudo cp "${CONFIG_FILE}" /etc/cloudflared/config.yml
     sudo cloudflared --config /etc/cloudflared/config.yml service install
