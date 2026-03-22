@@ -19,7 +19,7 @@ class TestStateWatcher:
     """Verify _state_watcher emits story_update on the correct file-change events."""
 
     def _make_app(self):
-        return create_app()
+        return create_app(async_mode="threading", start_watcher=False)
 
     def test_emits_on_active_stories_change_only(self):
         """_state_watcher emits story_update when active_stories.json changes,

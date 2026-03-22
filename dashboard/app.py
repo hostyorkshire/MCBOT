@@ -425,20 +425,33 @@ def _state_watcher(app: Flask) -> None:
 # ---------------------------------------------------------------------------
 
 
-def create_app() -> Flask:
-    """Create and configure the Flask application."""
+def create_app(async_mode: str = "eventlet", *, start_watcher: bool = True) -> Flask:
+    """Create and configure the Flask application.
+
+    Args:
+        async_mode: The async mode to use for Flask-SocketIO.  Defaults to
+            ``"eventlet"`` for production use (requires the ``eventlet``
+            package from ``dashboard/requirements.txt``).  Pass
+            ``"threading"`` when running tests or in environments where
+            eventlet cannot be installed.
+        start_watcher: Whether to start the background file-watcher thread.
+            Set to ``False`` in tests that exercise ``_state_watcher``
+            directly to avoid a stale background thread interfering.
+    """
     app = Flask(__name__, instance_relative_config=False)
     app.secret_key = os.urandom(24)
     app.register_blueprint(bp, url_prefix="/dashboard")
     app.register_blueprint(chat_bp)  # /chat at the application root
 
-    # async_mode="eventlet" tells Flask-SocketIO to use the eventlet WSGI server,
-    # which is required for reliable operation under systemd/production environments.
-    # eventlet must be installed (listed in dashboard/requirements.txt).
-    socketio.init_app(app, async_mode="eventlet", cors_allowed_origins="*")
+    # async_mode="eventlet" uses the eventlet WSGI server, which is required
+    # for reliable operation under systemd/production environments.
+    # async_mode="threading" is used in tests and environments where eventlet
+    # cannot be installed.  eventlet is listed in dashboard/requirements.txt.
+    socketio.init_app(app, async_mode=async_mode, cors_allowed_origins="*")
 
     # Start the background watcher thread once the app is fully constructed.
-    socketio.start_background_task(_state_watcher, app)
+    if start_watcher:
+        socketio.start_background_task(_state_watcher, app)
 
     return app
 
