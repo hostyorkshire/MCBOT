@@ -29,6 +29,17 @@
       <button class="btn-refresh" id="btn-refresh" onclick="fetchAll()">⟳ Refresh</button>
     </div>
 
+    <!-- ── System stats bar ─────────────────────────────────────── -->
+    <div class="sysinfo-bar" aria-label="System stats">
+      <span class="sysinfo-item">🌡 <span id="stat-cpu-temp">—</span></span>
+      <span class="sysinfo-sep">·</span>
+      <span class="sysinfo-item">🖥 <span id="stat-cpu-percent">—</span></span>
+      <span class="sysinfo-sep">·</span>
+      <span class="sysinfo-item">🧠 <span id="stat-ram">—</span></span>
+      <span class="sysinfo-sep">·</span>
+      <span class="sysinfo-item">💾 <span id="stat-disk">—</span></span>
+    </div>
+
     <!-- ── Bot status card ─────────────────────────────────────── -->
     <section class="card" aria-labelledby="status-heading">
       <h2 id="status-heading">🤖 Bot Status</h2>
@@ -52,34 +63,6 @@
         <div class="stat-box">
           <div class="stat-label">Errors</div>
           <div class="stat-value" id="stat-errors">—</div>
-        </div>
-
-      </div>
-    </section>
-
-    <!-- ── System stats card ────────────────────────────────────── -->
-    <section class="card" aria-labelledby="sysinfo-heading">
-      <h2 id="sysinfo-heading">📊 System Stats</h2>
-      <div class="status-grid">
-
-        <div class="stat-box">
-          <div class="stat-label">🌡 CPU Temp</div>
-          <div class="stat-value" id="stat-cpu-temp">—</div>
-        </div>
-
-        <div class="stat-box">
-          <div class="stat-label">🖥 CPU Usage</div>
-          <div class="stat-value" id="stat-cpu-percent">—</div>
-        </div>
-
-        <div class="stat-box">
-          <div class="stat-label">🧠 RAM</div>
-          <div class="stat-value" id="stat-ram">—</div>
-        </div>
-
-        <div class="stat-box">
-          <div class="stat-label">💾 Disk (/)</div>
-          <div class="stat-value" id="stat-disk">—</div>
         </div>
 
       </div>
@@ -158,7 +141,8 @@
     const SYSINFO_URL     = "{{ url_for('dashboard.api_sysinfo') }}";
     const STORY_BASE_URL  = "{{ url_for('dashboard.story_live', user_key='__KEY__') }}";
     const AUTO_REFRESH_MS = 10_000;  // fallback polling interval (10 s)
-    const TEMP_HOT_C      = 70;      // °C threshold for "hot" temperature warning
+    const TEMP_HOT_C      = 70;      // °C threshold for amber temperature warning
+    const TEMP_CRITICAL_C = 80;      // °C threshold for red temperature warning
 
     // ── Helpers ────────────────────────────────────────────────────
     function fmtDate(ts) {
@@ -216,8 +200,10 @@
 
       const tempEl = document.getElementById("stat-cpu-temp");
       if (data.cpu_temp_available && data.cpu_temp_c !== null) {
-        tempEl.textContent = data.cpu_temp_c + " °C";
-        tempEl.style.color = data.cpu_temp_c >= TEMP_HOT_C ? "#e63946" : "";
+        tempEl.textContent = data.cpu_temp_c + "°C";
+        tempEl.style.color = data.cpu_temp_c >= TEMP_CRITICAL_C ? "#e63946"
+                           : data.cpu_temp_c >= TEMP_HOT_C      ? "#e07b00"
+                           : "";
       } else {
         tempEl.textContent = "N/A";
         tempEl.style.color = "";
@@ -226,14 +212,14 @@
       document.getElementById("stat-cpu-percent").textContent =
         data.cpu_percent !== null ? data.cpu_percent.toFixed(1) + "%" : "—";
 
-      document.getElementById("stat-ram").innerHTML =
+      document.getElementById("stat-ram").textContent =
         data.ram_used_mb !== null
-          ? `<span class="stat-value-sm">${data.ram_used_mb} MB / ${data.ram_total_mb} MB<br>(${data.ram_percent.toFixed(1)}%)</span>`
+          ? `${data.ram_used_mb}/${data.ram_total_mb} MB (${data.ram_percent.toFixed(0)}%)`
           : "—";
 
-      document.getElementById("stat-disk").innerHTML =
+      document.getElementById("stat-disk").textContent =
         data.disk_used_gb !== null
-          ? `<span class="stat-value-sm">${data.disk_used_gb} GB / ${data.disk_total_gb} GB<br>(${data.disk_percent.toFixed(1)}%)</span>`
+          ? `${data.disk_used_gb}/${data.disk_total_gb} GB (${data.disk_percent.toFixed(0)}%)`
           : "—";
     }
 
