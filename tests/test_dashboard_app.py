@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+import os
+import uuid
+from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
 
 from dashboard.active_stories import STORIES_FILE as ACTIVE_STORIES_FILE
@@ -261,3 +264,243 @@ class TestMergeStories:
             result = _merge_stories()
 
         assert len(result) == 0
+
+
+# ---------------------------------------------------------------------------
+# /chat endpoint tests (user–bot web communication)
+# ---------------------------------------------------------------------------
+
+
+def _make_groq_error(exc_class, status_code: int = 400):
+    """Build a real Groq error instance suitable for use as a side_effect."""
+    mock_resp = MagicMock(spec=httpx.Response)
+    mock_resp.status_code = status_code
+    mock_resp.request = MagicMock()
+    return exc_class("test error", response=mock_resp, body=None)
+
+
+class TestWebChat:
+    """Tests for the /chat endpoint (user–bot web communication)."""
+
+    def _make_app(self):
+        return create_app()
+
+    @staticmethod
+    def _mock_completion(text: str):
+        """Return a MagicMock Groq completion with the given reply text."""
+        mc = MagicMock()
+        mc.choices = [MagicMock()]
+        mc.choices[0].message.content = text
+        return mc
+
+    # ── 400 validation ──────────────────────────────────────────────────────
+
+    def test_empty_message_returns_400(self):
+        """Empty message string is rejected with HTTP 400."""
+        app = self._make_app()
+        with app.test_client() as c:
+            resp = c.post("/chat", json={"message": "", "user_id": str(uuid.uuid4())})
+        assert resp.status_code == 400
+        assert "error" in resp.get_json()
+
+    def test_whitespace_only_message_returns_400(self):
+        """A message made entirely of whitespace is treated as empty and rejected."""
+        app = self._make_app()
+        with app.test_client() as c:
+            resp = c.post("/chat", json={"message": "   ", "user_id": str(uuid.uuid4())})
+        assert resp.status_code == 400
+
+    def test_missing_message_key_returns_400(self):
+        """A request body without a 'message' key returns HTTP 400."""
+        app = self._make_app()
+        with app.test_client() as c:
+            resp = c.post("/chat", json={"user_id": str(uuid.uuid4())})
+        assert resp.status_code == 400
+
+    # ── 503 / missing API key ───────────────────────────────────────────────
+
+    def test_missing_api_key_returns_503(self):
+        """503 is returned when GROQ_API_KEY is absent from the environment."""
+        app = self._make_app()
+        env_without_key = {k: v for k, v in os.environ.items() if k != "GROQ_API_KEY"}
+        with app.test_client() as c, patch.dict(os.environ, env_without_key, clear=True):
+            resp = c.post("/chat", json={"message": "hello", "user_id": str(uuid.uuid4())})
+        assert resp.status_code == 503
+        assert "error" in resp.get_json()
+
+    # ── successful reply ────────────────────────────────────────────────────
+
+    def test_successful_reply_returns_200(self):
+        """A valid request with a working Groq API key returns HTTP 200 with a reply."""
+        app = self._make_app()
+        completion = self._mock_completion("Your adventure begins!")
+        user_id = str(uuid.uuid4())
+
+        with (
+            app.test_client() as c,
+            patch.dict(os.environ, {"GROQ_API_KEY": "test-key"}),
+            patch("groq.Groq") as MockGroq,
+        ):
+            MockGroq.return_value.chat.completions.create.return_value = completion
+            resp = c.post("/chat", json={"message": "start", "user_id": user_id})
+
+        assert resp.status_code == 200
+        assert resp.get_json()["reply"] == "Your adventure begins!"
+
+    def test_reply_uses_configured_model(self):
+        """The GROQ_MODEL env variable is forwarded to the Groq API call."""
+        app = self._make_app()
+        completion = self._mock_completion("Hello!")
+
+        with (
+            app.test_client() as c,
+            patch.dict(os.environ, {"GROQ_API_KEY": "k", "GROQ_MODEL": "my-model"}),
+            patch("groq.Groq") as MockGroq,
+        ):
+            MockGroq.return_value.chat.completions.create.return_value = completion
+            c.post("/chat", json={"message": "hi", "user_id": str(uuid.uuid4())})
+            call_kwargs = MockGroq.return_value.chat.completions.create.call_args.kwargs
+            assert call_kwargs["model"] == "my-model"
+
+    # ── Groq error handling ─────────────────────────────────────────────────
+
+    def test_authentication_error_returns_503(self):
+        """Groq AuthenticationError maps to HTTP 503."""
+        from groq import AuthenticationError
+
+        app = self._make_app()
+        err = _make_groq_error(AuthenticationError, status_code=401)
+
+        with (
+            app.test_client() as c,
+            patch.dict(os.environ, {"GROQ_API_KEY": "bad-key"}),
+            patch("groq.Groq") as MockGroq,
+        ):
+            MockGroq.return_value.chat.completions.create.side_effect = err
+            resp = c.post("/chat", json={"message": "hi", "user_id": str(uuid.uuid4())})
+
+        assert resp.status_code == 503
+
+    def test_rate_limit_error_returns_429(self):
+        """Groq RateLimitError maps to HTTP 429."""
+        from groq import RateLimitError
+
+        app = self._make_app()
+        err = _make_groq_error(RateLimitError, status_code=429)
+
+        with (
+            app.test_client() as c,
+            patch.dict(os.environ, {"GROQ_API_KEY": "real-key"}),
+            patch("groq.Groq") as MockGroq,
+        ):
+            MockGroq.return_value.chat.completions.create.side_effect = err
+            resp = c.post("/chat", json={"message": "hi", "user_id": str(uuid.uuid4())})
+
+        assert resp.status_code == 429
+
+    def test_generic_groq_error_returns_503(self):
+        """Any unexpected exception from the Groq client maps to HTTP 503."""
+        app = self._make_app()
+
+        with (
+            app.test_client() as c,
+            patch.dict(os.environ, {"GROQ_API_KEY": "real-key"}),
+            patch("groq.Groq") as MockGroq,
+        ):
+            MockGroq.return_value.chat.completions.create.side_effect = RuntimeError("oops")
+            resp = c.post("/chat", json={"message": "hi", "user_id": str(uuid.uuid4())})
+
+        assert resp.status_code == 503
+
+    # ── CORS ────────────────────────────────────────────────────────────────
+
+    def test_options_preflight_returns_200_with_cors_headers(self):
+        """OPTIONS pre-flight request returns HTTP 200 with CORS headers."""
+        app = self._make_app()
+        with app.test_client() as c:
+            resp = c.options("/chat")
+        assert resp.status_code == 200
+        assert "Access-Control-Allow-Origin" in resp.headers
+
+    def test_cors_headers_on_success_response(self):
+        """Successful POST response includes the CORS Allow-Origin header."""
+        app = self._make_app()
+        completion = self._mock_completion("Go!")
+
+        with (
+            app.test_client() as c,
+            patch.dict(os.environ, {"GROQ_API_KEY": "k"}),
+            patch("groq.Groq") as MockGroq,
+        ):
+            MockGroq.return_value.chat.completions.create.return_value = completion
+            resp = c.post("/chat", json={"message": "go", "user_id": str(uuid.uuid4())})
+
+        assert "Access-Control-Allow-Origin" in resp.headers
+
+    # ── input sanitisation ──────────────────────────────────────────────────
+
+    def test_invalid_user_id_replaced_gracefully(self):
+        """An invalid UUID user_id is silently replaced; the request still succeeds."""
+        app = self._make_app()
+        completion = self._mock_completion("Hello!")
+
+        with (
+            app.test_client() as c,
+            patch.dict(os.environ, {"GROQ_API_KEY": "k"}),
+            patch("groq.Groq") as MockGroq,
+        ):
+            MockGroq.return_value.chat.completions.create.return_value = completion
+            resp = c.post("/chat", json={"message": "hi", "user_id": "not-a-uuid"})
+
+        assert resp.status_code == 200
+
+    def test_message_truncated_to_500_chars(self):
+        """Messages longer than 500 characters are silently truncated before being sent."""
+        app = self._make_app()
+        long_msg = "x" * 600
+        completion = self._mock_completion("Truncated!")
+
+        with (
+            app.test_client() as c,
+            patch.dict(os.environ, {"GROQ_API_KEY": "k"}),
+            patch("groq.Groq") as MockGroq,
+        ):
+            MockGroq.return_value.chat.completions.create.return_value = completion
+            c.post("/chat", json={"message": long_msg, "user_id": str(uuid.uuid4())})
+            call_msgs = MockGroq.return_value.chat.completions.create.call_args.kwargs[
+                "messages"
+            ]
+            user_turn = next(m for m in call_msgs if m["role"] == "user")
+            assert len(user_turn["content"]) == 500
+
+    # ── conversation history ────────────────────────────────────────────────
+
+    def test_conversation_history_preserved(self):
+        """Subsequent requests with the same user_id include prior turns in the LLM context."""
+        app = self._make_app()
+        user_id = str(uuid.uuid4())
+        first_reply = "Chapter 1 begins."
+        second_reply = "Chapter 2 continues."
+
+        with app.test_client() as c, patch.dict(os.environ, {"GROQ_API_KEY": "k"}):
+            with patch("groq.Groq") as MockGroq:
+                MockGroq.return_value.chat.completions.create.return_value = self._mock_completion(
+                    first_reply
+                )
+                c.post("/chat", json={"message": "start", "user_id": user_id})
+
+            with patch("groq.Groq") as MockGroq2:
+                MockGroq2.return_value.chat.completions.create.return_value = self._mock_completion(
+                    second_reply
+                )
+                c.post("/chat", json={"message": "go left", "user_id": user_id})
+                second_call_msgs = MockGroq2.return_value.chat.completions.create.call_args.kwargs[
+                    "messages"
+                ]
+
+        # The second LLM call should include the first user message and assistant reply.
+        roles = [m["role"] for m in second_call_msgs]
+        assert "user" in roles
+        assert "assistant" in roles
+        contents = [m["content"] for m in second_call_msgs]
+        assert first_reply in contents
