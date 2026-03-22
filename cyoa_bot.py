@@ -898,9 +898,24 @@ async def main(argv: list[str] | None = None) -> None:
         raise ConnectionError(_connection_error_hint(serial_port, baud_rate))
     log.info("Connected to MeshCore.")
 
+    # Enable firmware-level auto-add so the radio accepts direct messages from
+    # any node, not just pre-existing contacts.  Without this the firmware
+    # silently drops DMs from unknown senders before the bot ever sees them.
+    await mc.commands.set_autoadd_config(1)
+
+    # Keep the local contact cache in sync automatically when the firmware
+    # fires ADVERTISEMENT or PATH_UPDATE events (e.g. after a new auto-add).
+    mc.auto_update_contacts = True
+
     # Fetch contacts so the library's internal cache is populated and we can
     # resolve sender names later.
     await mc.commands.get_contacts()
+
+    async def _on_new_contact(event) -> None:  # type: ignore[type-arg]
+        """Refresh the contact cache when the firmware auto-adds a new contact."""
+        await mc.commands.get_contacts()
+
+    mc.subscribe(EventType.NEW_CONTACT, _on_new_contact)
 
     handler = BotHandler(
         mc=mc,
