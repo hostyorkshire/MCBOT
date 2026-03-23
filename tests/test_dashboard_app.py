@@ -467,9 +467,7 @@ class TestWebChat:
         ):
             MockGroq.return_value.chat.completions.create.return_value = completion
             c.post("/chat", json={"message": long_msg, "user_id": str(uuid.uuid4())})
-            call_msgs = MockGroq.return_value.chat.completions.create.call_args.kwargs[
-                "messages"
-            ]
+            call_msgs = MockGroq.return_value.chat.completions.create.call_args.kwargs["messages"]
             user_turn = next(m for m in call_msgs if m["role"] == "user")
             assert len(user_turn["content"]) == 500
 
