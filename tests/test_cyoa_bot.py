@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import sys
 import types
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -23,6 +24,8 @@ def _import_bot():
             NO_MORE_MSGS = "NO_MORE_MSGS"
             CONTACT_MSG_RECV = "CONTACT_MSG_RECV"
             CHANNEL_MSG_RECV = "CHANNEL_MSG_RECV"
+            MESSAGES_WAITING = "MESSAGES_WAITING"
+            NEW_CONTACT = "NEW_CONTACT"
 
         fake_mc.EventType = _FakeEventType
         fake_mc.MeshCore = object
@@ -684,6 +687,56 @@ class TestMainStartupValidation:
                 await bot.main(["--port", "/dev/ttyUSB0"])
 
         assert any("llama-test-model" in r.message for r in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_main_enables_autoadd_and_auto_update_contacts(self, bot):
+        """main() calls set_autoadd_config(1) and sets auto_update_contacts=True on startup."""
+        mock_mc = MagicMock()
+        mock_mc.commands.set_autoadd_config = AsyncMock()
+        mock_mc.commands.get_contacts = AsyncMock()
+        mock_mc.disconnect = AsyncMock()
+        mock_mc.subscribe = MagicMock()
+
+        async def _cancel(_n):
+            raise asyncio.CancelledError
+
+        with (
+            patch.object(bot, "GROQ_API_KEY", "fake-key"),
+            patch("story_engine.AsyncGroq"),
+            patch.object(bot, "MeshCore") as mock_mc_cls,
+            patch("cyoa_bot.asyncio.sleep", side_effect=_cancel),
+            patch("cyoa_bot._start_dashboard_server"),
+        ):
+            mock_mc_cls.create_serial = AsyncMock(return_value=mock_mc)
+            await bot.main(["--port", "/dev/ttyUSB0"])
+
+        mock_mc.commands.set_autoadd_config.assert_awaited_once_with(1)
+        assert mock_mc.auto_update_contacts is True
+
+    @pytest.mark.asyncio
+    async def test_main_subscribes_new_contact_handler(self, bot):
+        """main() subscribes a NEW_CONTACT handler to refresh the contact cache."""
+        mock_mc = MagicMock()
+        mock_mc.commands.set_autoadd_config = AsyncMock()
+        mock_mc.commands.get_contacts = AsyncMock()
+        mock_mc.disconnect = AsyncMock()
+        subscribed_events: list = []
+        mock_mc.subscribe = MagicMock(side_effect=lambda ev, fn: subscribed_events.append(ev))
+
+        async def _cancel(_n):
+            raise asyncio.CancelledError
+
+        with (
+            patch.object(bot, "GROQ_API_KEY", "fake-key"),
+            patch("story_engine.AsyncGroq"),
+            patch.object(bot, "MeshCore") as mock_mc_cls,
+            patch("cyoa_bot.asyncio.sleep", side_effect=_cancel),
+            patch("cyoa_bot._start_dashboard_server"),
+        ):
+            mock_mc_cls.create_serial = AsyncMock(return_value=mock_mc)
+            await bot.main(["--port", "/dev/ttyUSB0"])
+
+        assert bot.EventType.NEW_CONTACT in subscribed_events
 
 
 # ---------------------------------------------------------------------------
