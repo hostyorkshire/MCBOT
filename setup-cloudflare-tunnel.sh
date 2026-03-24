@@ -166,15 +166,32 @@ _deploy_system_config() {
             /etc/cloudflared/config.yml
         info "Updated credentials-file path in /etc/cloudflared/config.yml"
     else
-        warn_box "⚠  CREDENTIALS FILE NOT FOUND AT ${CREDS_FILE}
+        # The user-level credentials file is absent (common on re-runs when the
+        # script is invoked from a different home directory than the first run).
+        # Check whether a previous run already placed a copy in /etc/cloudflared/
+        # and, if so, rewrite credentials-file to point at that copy so that
+        # pre-flight validation does not fail.
+        local _existing_creds=""
+        _existing_creds="$(sudo find /etc/cloudflared -maxdepth 1 -name '*.json' 2>/dev/null | head -n1)"
 
-The credentials file was not found at the expected path.
+        if [[ -n "${_existing_creds}" ]]; then
+            sudo sed -i \
+                "s|^credentials-file:.*|credentials-file: ${_existing_creds}|" \
+                /etc/cloudflared/config.yml
+            info "Credentials file not found at ${CREDS_FILE}."
+            info "Using existing credentials already in /etc/cloudflared/: ${_existing_creds}"
+        else
+            warn_box "⚠  CREDENTIALS FILE NOT FOUND AT ${CREDS_FILE}
+
+The credentials file was not found at the expected path
+and no previous credentials were found in /etc/cloudflared/.
 The system config will use whichever path is already set
 inside ${CONFIG_FILE}.
 
 If the service fails to start, run:
   cloudflared tunnel list
 and check that the .json file exists for your tunnel."
+        fi
     fi
 
     # Tighten permissions: config and credentials must be readable only by
