@@ -891,7 +891,7 @@ class TestAwaitingEndChoice:
         new_scene = "A new dawn.\n1. Explore\n2. Rest\n3. Leave"
         eng._client = _make_mock_groq(new_scene)
         with patch("story_engine._log_story"):
-            reply = await eng.advance_story("u1", "1")
+            await eng.advance_story("u1", "1")
         # A new session was created for u1
         assert "u1" in eng._sessions
         assert eng._sessions["u1"].finished is False
