@@ -758,7 +758,9 @@ class StoryEngine:
         except LLMError as exc:
             session.history.pop()
             return str(exc)
-        reply = _ensure_choices(reply, _END_FALLBACK_CHOICES if "[END]" in reply else _STORY_FALLBACK_CHOICES)
+        reply = _ensure_choices(
+            reply, _END_FALLBACK_CHOICES if "[END]" in reply else _STORY_FALLBACK_CHOICES
+        )
         session.add_message("assistant", reply)
         if "[END]" in reply:
             session.awaiting_end_choice = True
