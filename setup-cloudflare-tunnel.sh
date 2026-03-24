@@ -533,7 +533,6 @@ for t in tunnels:
             cloudflared tunnel delete -f "${TUNNEL_NAME}"
             # Remove stale credential file left behind by the deleted tunnel.
             # Use get_user_home to resolve the real home directory (handles root correctly).
-            local _linux_user_home
             _linux_user_home="$(get_user_home "${LINUX_USER}")"
             if [[ -n "${OLD_TUNNEL_ID}" && -f "${_linux_user_home}/.cloudflared/${OLD_TUNNEL_ID}.json" ]]; then
                 info "Removing stale credentials file for old tunnel ${OLD_TUNNEL_ID}..."
