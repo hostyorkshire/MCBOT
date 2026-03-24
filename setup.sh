@@ -113,6 +113,66 @@ fi
 
 VENV_DIR="$(cd "$(dirname "$0")" && pwd)/.venv"
 
+# ---------------------------------------------------------------------------
+# Root/sudo guard – venv and pip must NOT be set up as root.
+# ---------------------------------------------------------------------------
+# Running setup as root creates a root-owned .venv that causes PermissionError
+# when pip or the bot later runs as a normal user.
+#
+# If root is detected:
+#   - .venv already exists: skip venv/pip steps (assume done as normal user)
+#     and continue to the .env / systemd sections that do need root.
+#   - .venv does not exist: abort with clear instructions.
+# ---------------------------------------------------------------------------
+_DO_VENV=true
+if [ "$EUID" -eq 0 ]; then
+    if [ -d "$VENV_DIR" ]; then
+        echo ""
+        echo "Detected sudo/root invocation – skipping venv and pip install steps."
+        echo "(These must be performed as your normal user, not root.)"
+        echo ""
+        _DO_VENV=false
+    else
+        echo "" >&2
+        echo "ERROR: Do not run setup.sh as root (or with sudo) for environment setup." >&2
+        echo "" >&2
+        echo "  Creating the virtual environment and installing pip packages as root" >&2
+        echo "  produces a root-owned .venv that will cause PermissionError when" >&2
+        echo "  the bot or pip later runs as a normal user." >&2
+        echo "" >&2
+        echo "  Run setup WITHOUT sudo first (creates the venv as your normal user):" >&2
+        echo "    bash \"${SCRIPT_ABS}\"" >&2
+        echo "" >&2
+        echo "  Then re-run with sudo ONLY for the systemd service installation step:" >&2
+        echo "    sudo bash \"${SCRIPT_ABS}\"" >&2
+        echo "" >&2
+        exit 1
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# Ownership / writability check – catch a previously root-owned .venv early.
+# ---------------------------------------------------------------------------
+if [ "$_DO_VENV" = true ] && [ -d "$VENV_DIR" ] && [ ! -w "$VENV_DIR" ]; then
+    _VENV_OWNER="$(stat -c '%U' "$VENV_DIR" 2>/dev/null || echo 'unknown')"
+    echo "" >&2
+    echo "ERROR: The existing .venv at ${VENV_DIR} is not writable by you." >&2
+    echo "       It appears to be owned by: ${_VENV_OWNER}" >&2
+    echo "" >&2
+    echo "  This typically happens when setup.sh was previously run with sudo." >&2
+    echo "" >&2
+    echo "  Fix options:" >&2
+    echo "    1. Remove the root-owned venv and re-run setup (recommended):" >&2
+    echo "         sudo rm -rf \"${VENV_DIR}\" && bash \"${SCRIPT_ABS}\"" >&2
+    echo "    2. Take ownership of the existing venv and re-run setup:" >&2
+    echo "         sudo chown -R $(id -un):$(id -gn) \"${VENV_DIR}\"" >&2
+    echo "         bash \"${SCRIPT_ABS}\"" >&2
+    echo "" >&2
+    exit 1
+fi
+
+if [ "$_DO_VENV" = true ]; then
+
 if [ -d "$VENV_DIR" ]; then
     echo "Reusing existing virtual environment at ${VENV_DIR}"
     # Verify the existing venv is functional; a corrupted or outdated venv
@@ -141,7 +201,7 @@ else
 fi
 
 run_with_progress "Upgrading pip inside the virtual environment ..." \
-    "$VENV_DIR/bin/pip" install --quiet --upgrade pip
+    "$VENV_DIR/bin/pip" install --upgrade --retries 10 --timeout 60 pip
 
 # Verify requirements.txt is present before attempting to install from it.
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -154,19 +214,31 @@ if [ ! -f "${SCRIPT_DIR}/requirements.txt" ]; then
 fi
 
 if ! run_with_progress "Installing Python requirements into the virtual environment ..." \
-        "$VENV_DIR/bin/pip" install --quiet -r requirements.txt; then
+        "$VENV_DIR/bin/pip" install --retries 10 --timeout 60 -r requirements.txt; then
     echo "" >&2
     echo "ERROR: Failed to install dependencies from requirements.txt." >&2
     echo "       Check the output above for details, then try:" >&2
-    echo "         ${VENV_DIR}/bin/pip install -r requirements.txt" >&2
+    echo "         ${VENV_DIR}/bin/pip install --retries 10 --timeout 60 -r requirements.txt" >&2
     exit 1
 fi
 
-run_with_progress "Installing dev requirements into the virtual environment ..." \
-    "$VENV_DIR/bin/pip" install --quiet -r requirements-dev.txt
+if ! run_with_progress "Installing dev requirements into the virtual environment ..." \
+        "$VENV_DIR/bin/pip" install --retries 10 --timeout 60 -r requirements-dev.txt; then
+    echo "" >&2
+    echo "ERROR: Failed to install dev dependencies from requirements-dev.txt." >&2
+    echo "       This may be a transient network error.  Try re-running setup, or:" >&2
+    echo "         ${VENV_DIR}/bin/pip install --retries 10 --timeout 60 -r requirements-dev.txt" >&2
+    exit 1
+fi
 
-run_with_progress "Installing dashboard requirements into the virtual environment ..." \
-    "$VENV_DIR/bin/pip" install --quiet -r dashboard/requirements.txt
+if ! run_with_progress "Installing dashboard requirements into the virtual environment ..." \
+        "$VENV_DIR/bin/pip" install --retries 10 --timeout 60 -r dashboard/requirements.txt; then
+    echo "" >&2
+    echo "ERROR: Failed to install dashboard dependencies from dashboard/requirements.txt." >&2
+    echo "       This may be a transient network error.  Try re-running setup, or:" >&2
+    echo "         ${VENV_DIR}/bin/pip install --retries 10 --timeout 60 -r dashboard/requirements.txt" >&2
+    exit 1
+fi
 
 # Verify that flask-socketio was installed correctly (quick import check).
 if ! "$VENV_DIR/bin/python" -c "import flask_socketio" 2>/dev/null; then
@@ -194,6 +266,8 @@ if [ ! -f "${VENV_DIR}/bin/python" ]; then
     echo "       Check for errors in the pip install steps above." >&2
     exit 1
 fi
+
+fi  # end _DO_VENV
 
 printf "\n"
 
