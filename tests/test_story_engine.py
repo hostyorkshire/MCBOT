@@ -8,7 +8,9 @@ import pytest
 
 from story_engine import (
     _CHAPTER_CHOICE_SUFFIX,
+    _END_FALLBACK_CHOICES,
     _END_SCREEN_PROMPT,
+    _STORY_FALLBACK_CHOICES,
     DOOM_MAX,
     MAX_CHAPTERS,
     SCENES_PER_CHAPTER,
@@ -807,6 +809,50 @@ class TestEnsureChoicesIntegration:
         eng._client = _make_mock_groq(expected)
         result = await eng.advance_story("u1", "1")
         assert result == expected
+
+    @pytest.mark.asyncio
+    async def test_advance_normal_scene_with_end_tag_no_choices_gets_end_fallback(self):
+        """When the LLM ends the story with [END] but no choices, the engine must append
+        end-game fallback choices (Start over / New adventure / Quit) rather than the
+        story-progression fallback (Continue / Try something else / Explore)."""
+        with patch("story_engine.AsyncGroq") as mock_cls:
+            mock_cls.return_value = _make_mock_groq()
+            eng = StoryEngine(api_key="fake-key")
+        eng._client = _make_mock_groq("Opening.\n1. A\n2. B\n3. C")
+        await eng.start_story("u1", "Dave")
+        # LLM ends the story with [END] but omits the restart choices.
+        eng._client = _make_mock_groq("The adventure is over!\n[END]")
+        result = await eng.advance_story("u1", "1")
+        assert _END_FALLBACK_CHOICES.strip() in result, (
+            "End-game fallback choices must be appended when LLM omits them after [END]"
+        )
+        # Must NOT append the story-progression fallback choices.
+        assert _STORY_FALLBACK_CHOICES.strip() not in result, (
+            "Story-progression choices must NOT appear after a natural [END]"
+        )
+        # The session must be awaiting an end-screen choice (not a regular scene choice).
+        assert eng._sessions["u1"].awaiting_end_choice is True
+
+    @pytest.mark.asyncio
+    async def test_chapter_continue_with_end_tag_no_choices_gets_end_fallback(self):
+        """When the LLM ends the story with [END] (no choices) on the first scene of a
+        new chapter, the engine must append end-game fallback choices, not story-progression
+        choices."""
+        with patch("story_engine.AsyncGroq") as mock_cls:
+            mock_cls.return_value = _make_mock_groq()
+            eng = StoryEngine(api_key="fake-key")
+        session = Session("u1", "Hero", max_history=10)
+        session.awaiting_chapter_choice = True
+        eng._sessions["u1"] = session
+        # LLM opens the new chapter with [END] but no restart choices.
+        eng._client = _make_mock_groq("The story ends here.\n[END]")
+        result = await eng.advance_story("u1", "1")  # Continue
+        assert _END_FALLBACK_CHOICES.strip() in result, (
+            "End-game fallback choices must be appended when LLM omits them after [END]"
+        )
+        assert _STORY_FALLBACK_CHOICES.strip() not in result, (
+            "Story-progression choices must NOT appear after a natural [END]"
+        )
 
 
 # ---------------------------------------------------------------------------

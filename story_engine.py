@@ -105,6 +105,12 @@ _STORY_FALLBACK_CHOICES: str = "\n1. Continue\n2. Try something else\n3. Explore
 #: Fallback choices appended to a finale reply when the LLM omits them.
 _FINALE_FALLBACK_CHOICES: str = "\n[END]\n1. Start over\n2. New adventure\n3. Quit"
 
+#: Fallback choices appended to a normal scene reply that already contains
+#: ``[END]`` but is missing numbered choices (LLM ended the story without
+#: offering the required restart options).  Does NOT include an extra ``[END]``
+#: prefix because the LLM-produced ``[END]`` is already in the text.
+_END_FALLBACK_CHOICES: str = "\n1. Start over\n2. New adventure\n3. Quit"
+
 #: Fixed end-screen prompt re-shown when the user sends an unrecognised input
 #: while ``awaiting_end_choice`` is set.
 _END_SCREEN_PROMPT: str = "[END]\n1. Restart\n2. New adventure\n3. Quit"
@@ -564,7 +570,10 @@ class StoryEngine:
                     session.history.pop()
                     session.awaiting_chapter_choice = True
                     return str(exc)
-                reply = _ensure_choices(reply)
+                if "[END]" in reply:
+                    reply = _ensure_choices(reply, _END_FALLBACK_CHOICES)
+                else:
+                    reply = _ensure_choices(reply)
                 session.add_message("assistant", reply)
                 log.info(
                     "Chapter resumed for %s (chapter=%d)",
@@ -749,7 +758,7 @@ class StoryEngine:
         except LLMError as exc:
             session.history.pop()
             return str(exc)
-        reply = _ensure_choices(reply)
+        reply = _ensure_choices(reply, _END_FALLBACK_CHOICES if "[END]" in reply else _STORY_FALLBACK_CHOICES)
         session.add_message("assistant", reply)
         if "[END]" in reply:
             session.awaiting_end_choice = True
