@@ -132,14 +132,28 @@ chmod +x setup.sh
 bash setup.sh
 ```
 
-> **To also install the systemd services in the same run**, the script needs
-> root for that step.  When it asks *"Re-run now with sudo?"* answer `y` and
-> it will re-exec itself automatically.  Alternatively, start the whole wizard
-> with `sudo` from the beginning (use the full path to avoid the
-> `sudo: ./setup.sh: command not found` pitfall):
+> ⚠️ **Always run `setup.sh` as your normal user (without `sudo`).**  
+> Running as root creates a root-owned `.venv` that will cause `PermissionError`
+> when pip or the bot later runs as a non-root user.
+>
+> **To also install the systemd services**, root is only needed for that one
+> step.  When the wizard asks *"Re-run now with sudo?"* answer `y` and it will
+> re-exec itself automatically (skipping the venv/pip steps the second time).
+> Alternatively you can run the systemd-only re-run yourself:
 >
 > ```bash
-> sudo bash "$(pwd)/setup.sh"
+> sudo bash "$(pwd)/setup.sh"   # safe only AFTER a normal-user run creates .venv
+> ```
+>
+> **If `.venv` is already root-owned** (from a previous `sudo` run) you will see
+> a `PermissionError` during `pip install`.  Fix it with one of:
+>
+> ```bash
+> # Option 1 – recreate the venv from scratch (recommended):
+> sudo rm -rf .venv && bash setup.sh
+>
+> # Option 2 – take ownership of the existing venv:
+> sudo chown -R "$(id -un):$(id -gn)" .venv && bash setup.sh
 > ```
 
 The wizard will:
