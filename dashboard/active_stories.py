@@ -4,6 +4,11 @@ Keeps the last :data:`MAX_STORIES` sessions (whether active, finished, or
 restarted) in a JSON file so the dashboard can display them even after a
 session ends.
 
+Each session entry should include a ``story_id`` (a UUID4 string) as its
+unique identifier so that multiple sessions for the same user can coexist.
+Entries without a ``story_id`` fall back to keying by ``user_key`` for
+backward compatibility with the old schema.
+
 Thread-safe via an in-process lock; file writes are atomic (tmp + rename).
 """
 
@@ -21,7 +26,7 @@ log = logging.getLogger(__name__)
 STORIES_FILE: str = os.path.join(os.path.dirname(__file__), "active_stories.json")
 
 #: Maximum number of story entries to retain.
-MAX_STORIES: int = 20
+MAX_STORIES: int = 50
 
 _lock = threading.Lock()
 
@@ -29,24 +34,31 @@ _lock = threading.Lock()
 def upsert_story(story: dict) -> None:
     """Add or update a story entry in the log.
 
-    If a story with the same ``user_key`` already exists it is replaced
-    in-place.  When the list exceeds :data:`MAX_STORIES` entries the oldest
-    entries (by ``started_at``) are removed first.
+    When *story* contains a ``story_id`` key it is used as the unique
+    identifier, allowing multiple sessions for the same ``user_key`` to be
+    retained independently.  When ``story_id`` is absent the legacy
+    ``user_key`` is used as the identifier (backward-compatible behaviour).
+
+    When the list exceeds :data:`MAX_STORIES` entries the oldest entries (by
+    ``started_at``) are removed first.
 
     The write is atomic – a temporary file is renamed into place so readers
     never see a partial update.
 
     Args:
-        story: A plain dict with at minimum a ``user_key`` key and a
-            ``started_at`` float timestamp.  All keys are stored as-is.
+        story: A plain dict with at minimum a ``user_key`` key (and ideally a
+            ``story_id`` key) plus a ``started_at`` float timestamp.  All
+            keys are stored as-is.
     """
+    story_id = story.get("story_id")
     user_key = story.get("user_key")
-    if not user_key:
-        log.warning("upsert_story called with missing user_key; skipping")
+    if not story_id and not user_key:
+        log.warning("upsert_story called with missing story_id and user_key; skipping")
         return
 
     log.debug(
-        "upsert_story: user_key=%s finished=%s started_at=%s",
+        "upsert_story: story_id=%s user_key=%s finished=%s started_at=%s",
+        story_id,
         user_key,
         story.get("finished"),
         story.get("started_at"),
@@ -54,8 +66,12 @@ def upsert_story(story: dict) -> None:
 
     with _lock:
         stories = _load_locked()
-        # Replace any existing entry for this user_key.
-        stories = [s for s in stories if s.get("user_key") != user_key]
+        if story_id:
+            # New schema: key by story_id – allows multiple sessions per user.
+            stories = [s for s in stories if s.get("story_id") != story_id]
+        else:
+            # Backward compat: key by user_key (one entry per user).
+            stories = [s for s in stories if s.get("user_key") != user_key]
         stories.append(story)
         # Enforce the cap: sort oldest-first, keep the newest MAX_STORIES.
         stories.sort(key=lambda s: s.get("started_at", 0))

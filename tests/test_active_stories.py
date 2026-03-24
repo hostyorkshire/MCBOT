@@ -172,3 +172,33 @@ class TestUpsertStory:
         assert errors == []
         # All 10 entries should be present (10 < MAX_STORIES).
         assert len(_mod.load_stories()) == 10
+
+    def test_upsert_multiple_sessions_same_user_key_with_story_id(self):
+        """Two sessions for the same user_key but different story_ids are both kept."""
+        s1 = {"story_id": "sid-1", "user_key": "u1", "started_at": 1.0, "finished": True}
+        s2 = {"story_id": "sid-2", "user_key": "u1", "started_at": 2.0, "finished": True}
+        _mod.upsert_story(s1)
+        _mod.upsert_story(s2)
+        stories = _mod.load_stories()
+        assert len(stories) == 2
+        ids = {s["story_id"] for s in stories}
+        assert ids == {"sid-1", "sid-2"}
+
+    def test_upsert_replaces_by_story_id(self):
+        """Upserting with the same story_id replaces the existing entry."""
+        old = {"story_id": "sid-1", "user_key": "u1", "started_at": 1.0, "finished": False}
+        new = {"story_id": "sid-1", "user_key": "u1", "started_at": 1.0, "finished": True}
+        _mod.upsert_story(old)
+        _mod.upsert_story(new)
+        stories = _mod.load_stories()
+        assert len(stories) == 1
+        assert stories[0]["finished"] is True
+
+    def test_upsert_ignores_missing_story_id_and_user_key(self, caplog):
+        """An entry with neither story_id nor user_key is silently skipped."""
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="dashboard.active_stories"):
+            _mod.upsert_story({"started_at": 1.0})
+        assert _mod.load_stories() == []
+        assert any("missing story_id and user_key" in r.message for r in caplog.records)

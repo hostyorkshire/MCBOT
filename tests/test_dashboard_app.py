@@ -272,6 +272,67 @@ class TestMergeStories:
 
         assert len(result) == 0
 
+    def test_multiple_finished_sessions_same_user_retained(self):
+        """Two finished sessions for the same user_key with distinct story_ids are
+        both shown – the old 'one per user' behaviour is gone."""
+        persisted = [
+            {
+                "story_id": "sid-1",
+                "user_key": "u1",
+                "user_name": "Alice",
+                "finished": True,
+                "started_at": 1.0,
+            },
+            {
+                "story_id": "sid-2",
+                "user_key": "u1",
+                "user_name": "Alice",
+                "finished": True,
+                "started_at": 2.0,
+            },
+        ]
+
+        with (
+            patch("dashboard.app.load_stories", return_value=persisted),
+            patch("dashboard.app.get_sessions", return_value=[]),
+        ):
+            result = _merge_stories()
+
+        assert len(result) == 2
+        story_ids = {s["story_id"] for s in result}
+        assert story_ids == {"sid-1", "sid-2"}
+
+    def test_merge_by_story_id_protects_finished(self):
+        """A stale unfinished active session with the same story_id must not
+        overwrite a finished persisted record."""
+        persisted = [
+            {
+                "story_id": "sid-x",
+                "user_key": "u1",
+                "user_name": "Alice",
+                "finished": True,
+                "started_at": 1.0,
+            }
+        ]
+        stale_active = [
+            {
+                "story_id": "sid-x",
+                "user_key": "u1",
+                "user_name": "Alice",
+                "finished": False,
+                "started_at": 1.0,
+            }
+        ]
+
+        with (
+            patch("dashboard.app.load_stories", return_value=persisted),
+            patch("dashboard.app.get_sessions", return_value=stale_active),
+        ):
+            result = _merge_stories()
+
+        assert len(result) == 1
+        assert result[0]["finished"] is True
+
 
 # ---------------------------------------------------------------------------
 # /chat endpoint tests (user–bot web communication)
