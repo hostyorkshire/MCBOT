@@ -183,8 +183,8 @@ _deploy_system_config() {
         else
             warn_box "⚠  CREDENTIALS FILE NOT FOUND AT ${CREDS_FILE}
 
-The credentials file was not found at the expected path
-and no previous credentials were found in /etc/cloudflared/.
+The credentials file was not found at the expected path.
+No previous credentials were found in /etc/cloudflared/.
 The system config will use whichever path is already set
 inside ${CONFIG_FILE}.
 
