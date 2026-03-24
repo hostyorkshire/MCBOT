@@ -258,9 +258,20 @@
     }
 
     // ── Render both Active and Finished stories sections ──────────
+    // The API returns up to 50 sessions; show only the last 10 finished here.
+    const FINISHED_DISPLAY_LIMIT = 10;
     function renderStories(sessions) {
       const active   = (sessions || []).filter(s => !s.finished);
-      const finished = (sessions || []).filter(s =>  s.finished);
+      // Show the last 10 finished stories, sorted newest-first by
+      // finished_at (when available) falling back to started_at.
+      const finished = (sessions || [])
+        .filter(s => s.finished)
+        .sort((a, b) => {
+          const ta = a.finished_at || a.started_at || 0;
+          const tb = b.finished_at || b.started_at || 0;
+          return tb - ta;
+        })
+        .slice(0, FINISHED_DISPLAY_LIMIT);
 
       renderStoriesSection(
         "active-stories-tbody", "active-stories-table", "active-stories-empty",

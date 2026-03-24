@@ -136,6 +136,7 @@ def _append_history(user_id: str, role: str, content: str, *, user_name: str = "
             _chat_session_meta[user_id] = {
                 "started_at": ts,
                 "user_name": user_name or "Web User",
+                "story_id": str(uuid.uuid4()),
             }
         elif user_name:
             # Allow the display name to be updated if the user changes it.
@@ -152,6 +153,7 @@ def _append_history(user_id: str, role: str, content: str, *, user_name: str = "
     # Socket.IO `story_update` event automatically.
     _upsert_story(
         {
+            "story_id": meta["story_id"],
             "user_key": user_id,
             "user_name": meta["user_name"],
             "genre": "web",
@@ -160,6 +162,7 @@ def _append_history(user_id: str, role: str, content: str, *, user_name: str = "
             "scene_in_chapter": 0,
             "doom": 0,
             "finished": False,
+            "finished_at": None,
             "awaiting_chapter_choice": False,
             "started_at": meta["started_at"],
             "source": "web",
@@ -193,7 +196,7 @@ def api_status():
 
 
 def _merge_stories() -> list[dict]:
-    """Merge persisted and active session data, newest-first (max 20).
+    """Merge persisted and active session data, newest-first (max 50).
 
     Persisted entries from ``active_stories.json`` are loaded first.  Active
     sessions from ``bot_state.json`` are layered on top **unless** the active
@@ -201,23 +204,36 @@ def _merge_stories() -> list[dict]:
     case the persisted (finished) entry wins — this prevents a stale
     ``bot_state.json`` snapshot (written every ~5 s) from reverting a story
     that has already been logged as finished.
+
+    When a ``story_id`` field is present it is used as the merge key, allowing
+    multiple sessions for the same ``user_key`` to coexist.  Entries without a
+    ``story_id`` fall back to keying by ``user_key`` for backward compatibility.
     """
-    merged: dict[str, dict] = {s["user_key"]: s for s in load_stories() if s.get("user_key")}
+
+    def _key(s: dict) -> str:
+        return s.get("story_id") or s.get("user_key", "")
+
+    merged: dict[str, dict] = {}
+    for s in load_stories():
+        k = _key(s)
+        if k:
+            merged[k] = s
+
     for session in get_sessions():
-        uk = session.get("user_key")
-        if not uk:
+        k = _key(session)
+        if not k:
             continue
         # Never let a stale unfinished session overwrite a finished record.
-        if not session.get("finished") and uk in merged and merged[uk].get("finished"):
+        if not session.get("finished") and k in merged and merged[k].get("finished"):
             continue
-        merged[uk] = session
+        merged[k] = session
     stories = sorted(merged.values(), key=lambda s: s.get("started_at", 0), reverse=True)
-    return stories[:20]
+    return stories[:50]
 
 
 @bp.route("/api/stories")
 def api_stories():
-    """Return last 20 story sessions (active, finished, or restarted) as JSON."""
+    """Return last 50 story sessions (active, finished, or restarted) as JSON."""
     return jsonify(_merge_stories())
 
 

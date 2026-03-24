@@ -508,6 +508,20 @@
 
     // ── Initialise ─────────────────────────────────────────────────────
     function init() {
+      // Warn about common misconfigurations before the user tries to send.
+      if (!CHAT_ENDPOINT) {
+        console.warn("MCBOT chat: CHAT_API_BASE is empty – requests will fail. " +
+          "Set CHAT_API_BASE to your bot's public URL (e.g. https://bot.yourdomain.com).");
+      } else if (location.protocol === "https:" && CHAT_ENDPOINT.startsWith("http://")) {
+        // Browsers block mixed content: HTTPS page loading HTTP resources.
+        // The reverse (HTTP page → HTTPS endpoint) is allowed by browsers.
+        console.warn("MCBOT chat: Mixed-content issue – the page is served over HTTPS " +
+          "but CHAT_ENDPOINT is HTTP (" + CHAT_ENDPOINT + "). Browsers block such requests. " +
+          "Update CHAT_API_BASE to use HTTPS.");
+      } else {
+        console.info("MCBOT chat: endpoint =", CHAT_ENDPOINT);
+      }
+
       userName = localStorage.getItem(KEY_NAME) || "";
       userId   = localStorage.getItem(KEY_USER_ID) || "";
 
@@ -615,8 +629,13 @@
         appendBotMessage(data.reply || "(no reply)");
       } catch (err) {
         removeMessage(typingId);
-        showError("Could not reach the bot. Check your connection and the API URL.");
-        console.error("Chat fetch error:", err);
+        // Include the resolved endpoint in the error so misconfigurations are
+        // immediately visible without needing to open DevTools.
+        const endpointInfo = CHAT_ENDPOINT
+          ? " (endpoint: " + CHAT_ENDPOINT + ")"
+          : " (no endpoint configured)";
+        showError("Could not reach the bot. Check your connection and the API URL." + endpointInfo);
+        console.error("Chat fetch error:", err, "Endpoint:", CHAT_ENDPOINT);
       } finally {
         toggleSending(false);
         input.focus();
