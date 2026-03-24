@@ -300,6 +300,29 @@
       font-weight: 700;
     }
 
+    /* ── Tip note ───────────────────────────────────────────────── */
+    .tip-note {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.65rem;
+      background: var(--blob-yellow);
+      border: var(--outline);
+      border-radius: 14px;
+      box-shadow: 4px 4px 0 var(--ink);
+      padding: 0.85rem 1rem;
+      margin-bottom: 1.6rem;
+      text-align: left;
+      font-size: 0.88rem;
+      font-weight: 700;
+      line-height: 1.45;
+    }
+    .tip-note .tip-icon {
+      flex-shrink: 0;
+      font-size: 1.3rem;
+      line-height: 1;
+      margin-top: 0.05rem;
+    }
+
     /* ── Footer note ────────────────────────────────────────────── */
     .footer-note {
       font-size: 0.78rem;
@@ -403,6 +426,15 @@
           <span>Once added, message StoryBoT — type <code>help</code> to get started!</span>
         </li>
       </ol>
+
+      <!-- Advert flood tip -->
+      <div class="tip-note" role="note" aria-label="Tip: if you cannot message the bot">
+        <span class="tip-icon" aria-hidden="true">💡</span>
+        <span>
+          <strong>Can't message the bot?</strong> Do an <em>advert flood route</em> in MeshCore
+          — this broadcasts your presence over the mesh so the bot can discover and add you as a contact automatically.
+        </span>
+      </div>
 
       <!-- Bot commands reference -->
       <h2 class="commands-heading">Bot Commands</h2>
