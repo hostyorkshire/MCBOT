@@ -8,6 +8,7 @@ import pytest
 
 from story_engine import (
     _CHAPTER_CHOICE_SUFFIX,
+    _END_SCREEN_PROMPT,
     DOOM_MAX,
     MAX_CHAPTERS,
     SCENES_PER_CHAPTER,
@@ -806,3 +807,123 @@ class TestEnsureChoicesIntegration:
         eng._client = _make_mock_groq(expected)
         result = await eng.advance_story("u1", "1")
         assert result == expected
+
+
+# ---------------------------------------------------------------------------
+# awaiting_end_choice – end-screen state and quit/restart/new-adventure flows
+# ---------------------------------------------------------------------------
+
+
+def _engine_with_end_screen(end_reply: str = _END_SCREEN_PROMPT) -> StoryEngine:
+    """Return an engine whose session is at the end-screen (awaiting_end_choice=True)."""
+    with patch("story_engine.AsyncGroq") as mock_cls:
+        mock_cls.return_value = _make_mock_groq()
+        eng = StoryEngine(api_key="fake-key")
+    session = Session("u1", "Hero", max_history=10)
+    session.history.append({"role": "assistant", "content": end_reply, "ts": 0.0})
+    session.awaiting_end_choice = True
+    eng._sessions["u1"] = session
+    eng._client = _make_mock_groq()
+    return eng
+
+
+class TestAwaitingEndChoice:
+    """Tests for the end-screen choice state introduced by the awaiting_end_choice flag."""
+
+    @pytest.mark.asyncio
+    async def test_end_screen_sets_awaiting_end_choice(self):
+        """When the LLM returns [END] during normal advancement, awaiting_end_choice is set."""
+        with patch("story_engine.AsyncGroq") as mock_cls:
+            mock_cls.return_value = _make_mock_groq()
+            eng = StoryEngine(api_key="fake-key")
+        eng._client = _make_mock_groq("Opening.\n1. A\n2. B\n3. C")
+        await eng.start_story("u1", "Hero")
+        eng._client = _make_mock_groq("[END]\n1. Restart\n2. New adventure\n3. Quit")
+        await eng.advance_story("u1", "1")
+        session = eng._sessions["u1"]
+        assert session.awaiting_end_choice is True
+        assert session.finished is False
+
+    def test_awaiting_end_choice_defaults_false(self):
+        """A fresh session must have awaiting_end_choice=False."""
+        s = Session("u1", "Hero", max_history=10)
+        assert s.awaiting_end_choice is False
+
+    @pytest.mark.asyncio
+    async def test_end_choice_3_marks_finished(self):
+        """Choosing 3 (Quit) while awaiting_end_choice sets finished=True."""
+        eng = _engine_with_end_screen()
+        with patch("story_engine._log_story"):
+            await eng.advance_story("u1", "3")
+        assert "u1" not in eng._sessions
+
+    @pytest.mark.asyncio
+    async def test_end_choice_3_logs_finished_story(self):
+        """Choosing 3 (Quit) while awaiting_end_choice calls _log_story with finished=True."""
+        eng = _engine_with_end_screen()
+        with patch("story_engine._log_story") as mock_log:
+            await eng.advance_story("u1", "3")
+        mock_log.assert_called_once()
+        call_arg = mock_log.call_args[0][0]
+        assert call_arg["user_key"] == "u1"
+        assert call_arg["finished"] is True
+
+    @pytest.mark.asyncio
+    async def test_end_choice_3_removes_session(self):
+        """Choosing 3 (Quit) while awaiting_end_choice removes the session from _sessions."""
+        eng = _engine_with_end_screen()
+        with patch("story_engine._log_story"):
+            await eng.advance_story("u1", "3")
+        assert "u1" not in eng._sessions
+
+    @pytest.mark.asyncio
+    async def test_end_choice_3_returns_goodbye(self):
+        """Choosing 3 (Quit) returns a goodbye message."""
+        eng = _engine_with_end_screen()
+        with patch("story_engine._log_story"):
+            reply = await eng.advance_story("u1", "3")
+        assert "goodbye" in reply.lower() or "recorded" in reply.lower()
+
+    @pytest.mark.asyncio
+    async def test_end_choice_1_restarts_story(self):
+        """Choosing 1 (Restart) while awaiting_end_choice starts a new session."""
+        eng = _engine_with_end_screen()
+        new_scene = "A new dawn.\n1. Explore\n2. Rest\n3. Leave"
+        eng._client = _make_mock_groq(new_scene)
+        with patch("story_engine._log_story"):
+            reply = await eng.advance_story("u1", "1")
+        # A new session was created for u1
+        assert "u1" in eng._sessions
+        assert eng._sessions["u1"].finished is False
+        assert eng._sessions["u1"].awaiting_end_choice is False
+
+    @pytest.mark.asyncio
+    async def test_end_choice_2_logs_and_removes_session(self):
+        """Choosing 2 (New adventure) logs the session and removes it from memory."""
+        eng = _engine_with_end_screen()
+        with patch("story_engine._log_story") as mock_log:
+            await eng.advance_story("u1", "2")
+        mock_log.assert_called_once()
+        assert "u1" not in eng._sessions
+
+    @pytest.mark.asyncio
+    async def test_end_choice_unknown_reshows_end_screen(self):
+        """An unrecognised input while awaiting_end_choice re-shows the end-screen prompt."""
+        eng = _engine_with_end_screen()
+        reply = await eng.advance_story("u1", "maybe later")
+        assert reply == _END_SCREEN_PROMPT
+        assert "u1" in eng._sessions  # session still active
+        assert eng._sessions["u1"].awaiting_end_choice is True
+
+    @pytest.mark.asyncio
+    async def test_session_to_dict_includes_awaiting_end_choice(self):
+        """_session_to_dict must include the awaiting_end_choice field."""
+        with patch("story_engine.AsyncGroq") as mock_cls:
+            mock_cls.return_value = _make_mock_groq()
+            eng = StoryEngine(api_key="fake-key")
+        session = Session("u1", "Hero", max_history=10)
+        session.awaiting_end_choice = True
+        eng._sessions["u1"] = session
+        d = eng._session_to_dict(session)
+        assert "awaiting_end_choice" in d
+        assert d["awaiting_end_choice"] is True
