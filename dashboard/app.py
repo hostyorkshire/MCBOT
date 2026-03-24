@@ -83,6 +83,7 @@ _log = logging.getLogger(__name__)
 # Sessions are ephemeral – they reset when the dashboard process restarts.
 _chat_lock: threading.Lock = threading.Lock()
 _chat_sessions: dict[str, deque] = {}
+_chat_session_meta: dict[str, dict] = {}  # stores started_at (and future metadata) per session
 _CHAT_MAX_TURNS: int = 20  # maximum conversation turns retained per session
 _CHAT_MAX_SESSIONS: int = 500  # maximum concurrent sessions in memory
 
@@ -101,35 +102,70 @@ def _get_history(user_id: str) -> list[dict]:
         return list(_chat_sessions.get(user_id, []))
 
 
-def _append_history(user_id: str, role: str, content: str) -> None:
+def _append_history(user_id: str, role: str, content: str, *, user_name: str = "") -> None:
     """Append a turn to *user_id*'s conversation history.
+
+    Each turn is stored with a ``ts`` Unix-timestamp so the dashboard UI can
+    display local times.  After appending, the corresponding story entry in
+    ``active_stories.json`` is updated to include the full ``history`` array,
+    which makes it visible in the Story Live View and via
+    ``/dashboard/api/stories`` (both server-rendered and polling/Socket.IO
+    paths).
+
+    Args:
+        user_id: Client-supplied UUID identifying the session.
+        role: ``"user"`` or ``"assistant"``.
+        content: The message text.
+        user_name: Display name typed by the user in the chat UI.  When
+            provided and non-empty, the session record is updated so the
+            dashboard shows the real name instead of the fallback
+            ``"Web User"``.
 
     When the number of stored sessions reaches :data:`_CHAT_MAX_SESSIONS` the
     oldest session is evicted to keep memory usage bounded.
     """
+    ts = _time.time()
     with _chat_lock:
         if user_id not in _chat_sessions:
             # Evict the oldest session if the cap is reached.
             if len(_chat_sessions) >= _CHAT_MAX_SESSIONS:
                 oldest_key = next(iter(_chat_sessions))
                 del _chat_sessions[oldest_key]
+                _chat_session_meta.pop(oldest_key, None)
             _chat_sessions[user_id] = deque(maxlen=_CHAT_MAX_TURNS)
-            _upsert_story(
-                {
-                    "user_key": user_id,
-                    "user_name": "Web User",
-                    "genre": "web",
-                    "genre_name": "Web Chat",
-                    "chapter": 1,
-                    "scene_in_chapter": 0,
-                    "doom": 0,
-                    "finished": False,
-                    "awaiting_chapter_choice": False,
-                    "started_at": _time.time(),
-                    "source": "web",
-                }
-            )
-        _chat_sessions[user_id].append({"role": role, "content": content})
+            _chat_session_meta[user_id] = {
+                "started_at": ts,
+                "user_name": user_name or "Web User",
+            }
+        elif user_name:
+            # Allow the display name to be updated if the user changes it.
+            _chat_session_meta[user_id]["user_name"] = user_name
+        _chat_sessions[user_id].append({"role": role, "content": content, "ts": ts})
+        # Take a snapshot while the lock is held; upsert outside to avoid
+        # holding the lock during disk I/O.
+        history_snapshot = list(_chat_sessions[user_id])
+        meta = _chat_session_meta[user_id]
+
+    # Persist the updated history to active_stories.json so the dashboard
+    # Story Live View (server-rendered and live-update paths) can display it.
+    # The file watcher in _state_watcher will detect the write and emit a
+    # Socket.IO `story_update` event automatically.
+    _upsert_story(
+        {
+            "user_key": user_id,
+            "user_name": meta["user_name"],
+            "genre": "web",
+            "genre_name": "CYOA Adventure",
+            "chapter": 1,
+            "scene_in_chapter": 0,
+            "doom": 0,
+            "finished": False,
+            "awaiting_chapter_choice": False,
+            "started_at": meta["started_at"],
+            "source": "web",
+            "history": history_snapshot,
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -313,9 +349,13 @@ def web_chat():
     data = request.get_json(force=True, silent=True) or {}
     raw_message = data.get("message", "")
     raw_user_id = data.get("user_id", "")
+    raw_user_name = data.get("user_name", "")
 
     # Sanitise inputs.
     message = str(raw_message).strip()[:500]
+    # Strip non-printable control characters and cap at 50 chars so the name
+    # is always safe to embed in HTML/JSON and display in the dashboard.
+    user_name = "".join(c for c in str(raw_user_name) if c.isprintable()).strip()[:50]
     # Accept only well-formed UUID strings from the client; fall back to a
     # random UUID to prevent injection via the user_id key.
     try:
@@ -356,7 +396,7 @@ def web_chat():
         return _cors(jsonify({"error": "Bot is unavailable, please try again"})), 503
 
     # Persist this turn so that subsequent requests maintain context.
-    _append_history(user_id, "user", message)
+    _append_history(user_id, "user", message, user_name=user_name)
     _append_history(user_id, "assistant", reply)
 
     return _cors(jsonify({"reply": reply}))

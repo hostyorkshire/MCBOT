@@ -10,7 +10,14 @@ import httpx
 import pytest
 
 from dashboard.active_stories import STORIES_FILE as ACTIVE_STORIES_FILE
-from dashboard.app import _merge_stories, _state_watcher, create_app, socketio
+from dashboard.app import (
+    _append_history,
+    _get_history,
+    _merge_stories,
+    _state_watcher,
+    create_app,
+    socketio,
+)
 from dashboard.state import STATE_FILE
 
 # ---------------------------------------------------------------------------
@@ -279,6 +286,14 @@ def _make_groq_error(exc_class, status_code: int = 400):
     return exc_class("test error", response=mock_resp, body=None)
 
 
+def _mock_completion(text: str):
+    """Return a MagicMock Groq completion with the given reply text."""
+    mc = MagicMock()
+    mc.choices = [MagicMock()]
+    mc.choices[0].message.content = text
+    return mc
+
+
 class TestWebChat:
     """Tests for the /chat endpoint (user–bot web communication)."""
 
@@ -288,10 +303,7 @@ class TestWebChat:
     @staticmethod
     def _mock_completion(text: str):
         """Return a MagicMock Groq completion with the given reply text."""
-        mc = MagicMock()
-        mc.choices = [MagicMock()]
-        mc.choices[0].message.content = text
-        return mc
+        return _mock_completion(text)
 
     # ── 400 validation ──────────────────────────────────────────────────────
 
@@ -502,3 +514,213 @@ class TestWebChat:
         assert "assistant" in roles
         contents = [m["content"] for m in second_call_msgs]
         assert first_reply in contents
+
+
+# ---------------------------------------------------------------------------
+# Web-chat history in dashboard sessions
+# ---------------------------------------------------------------------------
+
+
+class TestWebChatHistory:
+    """Verify that web chat turns are surfaced in the dashboard story data."""
+
+    # ── _append_history stores ts ────────────────────────────────────────────
+
+    def test_append_history_stores_ts(self):
+        """_append_history must add a float ts timestamp to each stored turn."""
+        user_id = str(uuid.uuid4())
+        with patch("dashboard.app._upsert_story"):
+            _append_history(user_id, "user", "hello")
+
+        history = _get_history(user_id)
+        assert len(history) == 1
+        turn = history[0]
+        assert turn["role"] == "user"
+        assert turn["content"] == "hello"
+        assert "ts" in turn, "ts field must be present"
+        assert isinstance(turn["ts"], float), "ts must be a float (Unix seconds)"
+
+    # ── _upsert_story called with history on every append ────────────────────
+
+    def test_upsert_story_called_with_history_on_first_message(self):
+        """The first _append_history call must persist the story with history."""
+        user_id = str(uuid.uuid4())
+        upsert_calls: list[dict] = []
+
+        with patch("dashboard.app._upsert_story", side_effect=upsert_calls.append):
+            _append_history(user_id, "user", "start")
+
+        assert len(upsert_calls) == 1
+        story = upsert_calls[0]
+        assert story["user_key"] == user_id
+        assert "history" in story
+        assert len(story["history"]) == 1
+        assert story["history"][0]["role"] == "user"
+        assert story["history"][0]["content"] == "start"
+        assert "ts" in story["history"][0]
+
+    def test_upsert_story_called_with_growing_history(self):
+        """Each subsequent _append_history call must update history in the persisted story."""
+        user_id = str(uuid.uuid4())
+        upsert_calls: list[dict] = []
+
+        with patch("dashboard.app._upsert_story", side_effect=upsert_calls.append):
+            _append_history(user_id, "user", "start")
+            _append_history(user_id, "assistant", "adventure begins")
+
+        assert len(upsert_calls) == 2
+        # Second call should contain both turns.
+        second_story = upsert_calls[1]
+        assert len(second_story["history"]) == 2
+        assert second_story["history"][0]["role"] == "user"
+        assert second_story["history"][1]["role"] == "assistant"
+        assert all("ts" in h for h in second_story["history"])
+
+    def test_started_at_stable_across_appends(self):
+        """started_at must remain the same value across multiple appends for one session."""
+        user_id = str(uuid.uuid4())
+        upsert_calls: list[dict] = []
+
+        with patch("dashboard.app._upsert_story", side_effect=upsert_calls.append):
+            _append_history(user_id, "user", "first")
+            _append_history(user_id, "assistant", "reply")
+            _append_history(user_id, "user", "second")
+
+        started_ats = [c["started_at"] for c in upsert_calls]
+        assert started_ats[0] == started_ats[1] == started_ats[2], (
+            "started_at must not change between appends for the same session"
+        )
+
+    # ── _merge_stories passes history through ────────────────────────────────
+
+    def test_merge_stories_includes_web_chat_history(self):
+        """_merge_stories must pass the history field from persisted web stories."""
+        history = [
+            {"role": "user", "content": "hello", "ts": 1000.0},
+            {"role": "assistant", "content": "hi there", "ts": 1001.0},
+        ]
+        persisted = [
+            {
+                "user_key": "web-uuid-1",
+                "genre": "web",
+                "source": "web",
+                "finished": False,
+                "started_at": 1000.0,
+                "history": history,
+            }
+        ]
+
+        with (
+            patch("dashboard.app.load_stories", return_value=persisted),
+            patch("dashboard.app.get_sessions", return_value=[]),
+        ):
+            result = _merge_stories()
+
+        assert len(result) == 1
+        assert result[0]["history"] == history
+
+    # ── /dashboard/api/stories returns history ───────────────────────────────
+
+    def test_api_stories_returns_web_chat_history(self):
+        """GET /dashboard/api/stories must include history for web chat sessions."""
+        user_id = str(uuid.uuid4())
+        history = [
+            {"role": "user", "content": "start", "ts": 2000.0},
+            {"role": "assistant", "content": "adventure begins!", "ts": 2001.0},
+        ]
+        persisted = [
+            {
+                "user_key": user_id,
+                "genre": "web",
+                "source": "web",
+                "finished": False,
+                "started_at": 2000.0,
+                "history": history,
+            }
+        ]
+
+        app = create_app(async_mode="threading", start_watcher=False)
+        with (
+            app.test_client() as c,
+            patch("dashboard.app.load_stories", return_value=persisted),
+            patch("dashboard.app.get_sessions", return_value=[]),
+        ):
+            resp = c.get("/dashboard/api/stories")
+
+        assert resp.status_code == 200
+        stories = resp.get_json()
+        web_story = next((s for s in stories if s["user_key"] == user_id), None)
+        assert web_story is not None, "web chat session not found in /dashboard/api/stories"
+        assert web_story["history"] == history, "history must be included in story response"
+
+    # ── user_name forwarded to the story record ──────────────────────────────
+
+    def test_user_name_stored_from_first_message(self):
+        """The user_name passed on the first append must appear in the upserted story."""
+        user_id = str(uuid.uuid4())
+        upsert_calls: list[dict] = []
+
+        with patch("dashboard.app._upsert_story", side_effect=upsert_calls.append):
+            _append_history(user_id, "user", "hello", user_name="Alice")
+
+        assert upsert_calls[0]["user_name"] == "Alice"
+
+    def test_user_name_defaults_to_web_user_when_omitted(self):
+        """When no user_name is provided the fallback 'Web User' is used."""
+        user_id = str(uuid.uuid4())
+        upsert_calls: list[dict] = []
+
+        with patch("dashboard.app._upsert_story", side_effect=upsert_calls.append):
+            _append_history(user_id, "user", "hello")
+
+        assert upsert_calls[0]["user_name"] == "Web User"
+
+    def test_user_name_updated_on_subsequent_message(self):
+        """A later append with a new user_name must update the stored display name."""
+        user_id = str(uuid.uuid4())
+        upsert_calls: list[dict] = []
+
+        with patch("dashboard.app._upsert_story", side_effect=upsert_calls.append):
+            _append_history(user_id, "user", "first", user_name="Alice")
+            _append_history(user_id, "user", "renamed", user_name="AliceRenamed")
+
+        assert upsert_calls[1]["user_name"] == "AliceRenamed"
+
+    # ── genre_name is CYOA Adventure ─────────────────────────────────────────
+
+    def test_genre_name_is_cyoa_adventure(self):
+        """The upserted story must carry genre_name 'CYOA Adventure', not 'Web Chat'."""
+        user_id = str(uuid.uuid4())
+        upsert_calls: list[dict] = []
+
+        with patch("dashboard.app._upsert_story", side_effect=upsert_calls.append):
+            _append_history(user_id, "user", "start")
+
+        assert upsert_calls[0]["genre_name"] == "CYOA Adventure"
+        assert upsert_calls[0]["genre"] == "web"
+
+    # ── web_chat endpoint forwards user_name ────────────────────────────────
+
+    def test_web_chat_forwards_user_name_to_story(self):
+        """/chat must forward the user_name field to the persisted story record."""
+        app = create_app(async_mode="threading", start_watcher=False)
+        user_id = str(uuid.uuid4())
+        upsert_calls: list[dict] = []
+
+        with (
+            app.test_client() as c,
+            patch.dict(os.environ, {"GROQ_API_KEY": "k"}),
+            patch("groq.Groq") as MockGroq,
+            patch("dashboard.app._upsert_story", side_effect=upsert_calls.append),
+        ):
+            MockGroq.return_value.chat.completions.create.return_value = _mock_completion(
+                "Adventure!"
+            )
+            c.post(
+                "/chat",
+                json={"message": "start", "user_id": user_id, "user_name": "Bob"},
+            )
+
+        user_turns = [c for c in upsert_calls if any(h["role"] == "user" for h in c["history"])]
+        assert user_turns, "expected at least one upsert call after the user turn"
+        assert user_turns[0]["user_name"] == "Bob"
