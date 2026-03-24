@@ -664,7 +664,6 @@ class TestFinishedSessionRemovedFromMemory:
 
 from story_engine import (  # noqa: E402 - import after fixtures/helpers
     _FINALE_FALLBACK_CHOICES,
-    _STORY_FALLBACK_CHOICES,
     _ensure_choices,
 )
 
