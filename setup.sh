@@ -36,7 +36,7 @@ BANNER
 GREEN='\033[0;32m'
 RESET='\033[0m'
 PROGRESS_INCREMENT=5
-PROGRESS_MAX=90
+PROGRESS_MAX=95
 
 _bar() {
     local pct=$1
@@ -53,7 +53,13 @@ run_with_progress() {
     local label="$1"
     shift
     printf "%s\n" "${label}"
-    "$@" > /dev/null 2>&1 &
+
+    # Capture stdout+stderr to a temp log so failures are debuggable.
+    local log
+    log="$(mktemp -t mcbot-setup.XXXXXX.log)"
+    chmod 600 "${log}"
+
+    "$@" >"${log}" 2>&1 &
     local pid=$!
     local pct=0
     while kill -0 "${pid}" 2>/dev/null; do
@@ -63,13 +69,20 @@ run_with_progress() {
             pct=$(( pct + PROGRESS_INCREMENT ))
         fi
     done
-    wait "${pid}"
-    local exit_code=$?
-    if [ "${exit_code}" -eq 0 ]; then
+
+    if wait "${pid}"; then
         _bar 100
         printf "\n"
+        rm -f "${log}"
+        return 0
     else
+        local exit_code=$?
         printf "\n"
+        echo "ERROR: command failed (exit ${exit_code}): $*" >&2
+        echo "---- begin output ----" >&2
+        tail -n 200 "${log}" >&2
+        echo "---- end output ----" >&2
+        rm -f "${log}"
         return "${exit_code}"
     fi
 }
