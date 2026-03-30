@@ -486,7 +486,9 @@ def _normalize_inbox_payload(raw_payload: dict, event_type: object) -> dict | No
         log.debug(
             "Inbox drain: skipping non-DM event (type=%s, keys=%s)",
             event_type,
-            list(raw_payload.keys()) if isinstance(raw_payload, dict) else type(raw_payload).__name__,
+            list(raw_payload.keys())
+            if isinstance(raw_payload, dict)
+            else type(raw_payload).__name__,
         )
         return None
 
