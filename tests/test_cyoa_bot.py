@@ -463,6 +463,13 @@ class TestDrainInbox:
 class TestDrainInboxGetMsg:
     """_drain_inbox should prefer get_msg() over bulk-drain candidates."""
 
+    @pytest.fixture(autouse=True)
+    def reset_seen_ids(self, bot):
+        """Clear the cross-session dedup cache before and after each test."""
+        bot._SEEN_MSG_IDS.clear()
+        yield
+        bot._SEEN_MSG_IDS.clear()
+
     @pytest.mark.asyncio
     async def test_get_msg_drain_returns_messages_before_no_more(self, bot):
         """get_msg() loop collects messages until NO_MORE_MSGS."""
@@ -486,7 +493,7 @@ class TestDrainInboxGetMsg:
 
     @pytest.mark.asyncio
     async def test_get_msg_drain_multiple_messages(self, bot):
-        """get_msg() loop collects multiple messages."""
+        """get_msg() loop collects multiple DM messages; channel messages are filtered."""
         import types as _types
         from unittest.mock import AsyncMock
 
@@ -497,8 +504,13 @@ class TestDrainInboxGetMsg:
                 type=EventType.CONTACT_MSG_RECV,
                 payload={"pubkey_prefix": "aa11", "text": "start"},
             ),
+            # Channel messages are skipped by _normalize_inbox_payload.
             _types.SimpleNamespace(
                 type=EventType.CHANNEL_MSG_RECV,
+                payload={"channel_idx": 0, "text": "broadcast"},
+            ),
+            _types.SimpleNamespace(
+                type=EventType.CONTACT_MSG_RECV,
                 payload={"pubkey_prefix": "bb22", "text": "help"},
             ),
             _types.SimpleNamespace(type=EventType.NO_MORE_MSGS, payload=None),
@@ -507,7 +519,31 @@ class TestDrainInboxGetMsg:
         get_msg = AsyncMock(side_effect=events)
         commands = _types.SimpleNamespace(get_msg=get_msg)
         result = await bot._drain_inbox(commands)
+        # Only the two CONTACT_MSG_RECV events are returned.
         assert len(result) == 2
+        assert result[0]["pubkey_prefix"] == "aa11"
+        assert result[1]["pubkey_prefix"] == "bb22"
+
+    @pytest.mark.asyncio
+    async def test_get_msg_drain_channel_message_filtered(self, bot):
+        """Channel messages are not returned by the drain loop."""
+        import types as _types
+        from unittest.mock import AsyncMock
+
+        EventType = bot.EventType
+
+        events = [
+            _types.SimpleNamespace(
+                type=EventType.CHANNEL_MSG_RECV,
+                payload={"channel_idx": 0, "text": "broadcast"},
+            ),
+            _types.SimpleNamespace(type=EventType.NO_MORE_MSGS, payload=None),
+        ]
+
+        get_msg = AsyncMock(side_effect=events)
+        commands = _types.SimpleNamespace(get_msg=get_msg)
+        result = await bot._drain_inbox(commands)
+        assert result == []
 
     @pytest.mark.asyncio
     async def test_get_msg_drain_deduplicates_identical_payloads(self, bot):
@@ -528,6 +564,28 @@ class TestDrainInboxGetMsg:
         commands = _types.SimpleNamespace(get_msg=get_msg)
         result = await bot._drain_inbox(commands)
         assert len(result) == 1
+
+    @pytest.mark.asyncio
+    async def test_get_msg_drain_cross_session_dedup(self, bot):
+        """A payload already in _SEEN_MSG_IDS is suppressed in a subsequent drain."""
+        import types as _types
+        from unittest.mock import AsyncMock
+
+        EventType = bot.EventType
+
+        payload = {"pubkey_prefix": "aa11", "text": "start"}
+        msg_id = bot._make_msg_id(payload)
+        # Pre-populate the cross-session cache as if a previous drain saw it.
+        bot._SEEN_MSG_IDS.add(msg_id)
+
+        events = [
+            _types.SimpleNamespace(type=EventType.CONTACT_MSG_RECV, payload=payload),
+            _types.SimpleNamespace(type=EventType.NO_MORE_MSGS, payload=None),
+        ]
+        get_msg = AsyncMock(side_effect=events)
+        commands = _types.SimpleNamespace(get_msg=get_msg)
+        result = await bot._drain_inbox(commands)
+        assert result == []
 
     @pytest.mark.asyncio
     async def test_get_msg_drain_no_messages_returns_empty(self, bot):
@@ -578,6 +636,124 @@ class TestDrainInboxGetMsg:
         )
         await bot._drain_inbox(commands)
         bulk_mock.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Tests: _normalize_inbox_payload
+# ---------------------------------------------------------------------------
+
+
+class TestNormalizeInboxPayload:
+    """_normalize_inbox_payload should extract pubkey_prefix and text for DMs."""
+
+    def test_dm_with_standard_keys(self, bot):
+        """A CONTACT_MSG_RECV payload with standard keys is normalised correctly."""
+        EventType = bot.EventType
+        payload = {"pubkey_prefix": "aa11bb22", "text": "start", "sender_timestamp": 123}
+        result = bot._normalize_inbox_payload(payload, EventType.CONTACT_MSG_RECV)
+        assert result is not None
+        assert result["pubkey_prefix"] == "aa11bb22"
+        assert result["text"] == "start"
+
+    def test_channel_message_returns_none(self, bot):
+        """A CHANNEL_MSG_RECV event is skipped (not a DM)."""
+        EventType = bot.EventType
+        payload = {"channel_idx": 0, "text": "broadcast"}
+        result = bot._normalize_inbox_payload(payload, EventType.CHANNEL_MSG_RECV)
+        assert result is None
+
+    def test_unknown_event_type_returns_none(self, bot):
+        """An unrecognised event type is skipped."""
+        payload = {"pubkey_prefix": "aa11", "text": "hello"}
+        result = bot._normalize_inbox_payload(payload, "SOME_OTHER_EVENT")
+        assert result is None
+
+    def test_dm_with_alternative_sender_key_from(self, bot):
+        """'from' is accepted as an alternative to 'pubkey_prefix'."""
+        EventType = bot.EventType
+        payload = {"from": "aa11bb22", "text": "hello"}
+        result = bot._normalize_inbox_payload(payload, EventType.CONTACT_MSG_RECV)
+        assert result is not None
+        assert result["pubkey_prefix"] == "aa11bb22"
+
+    def test_dm_with_alternative_sender_key_sender(self, bot):
+        """'sender' is accepted as an alternative to 'pubkey_prefix'."""
+        EventType = bot.EventType
+        payload = {"sender": "cc33dd44", "text": "hello"}
+        result = bot._normalize_inbox_payload(payload, EventType.CONTACT_MSG_RECV)
+        assert result is not None
+        assert result["pubkey_prefix"] == "cc33dd44"
+
+    def test_dm_with_alternative_text_key_msg(self, bot):
+        """'msg' is accepted as an alternative to 'text'."""
+        EventType = bot.EventType
+        payload = {"pubkey_prefix": "aa11", "msg": "adventure"}
+        result = bot._normalize_inbox_payload(payload, EventType.CONTACT_MSG_RECV)
+        assert result is not None
+        assert result["text"] == "adventure"
+
+    def test_dm_missing_pubkey_returns_none(self, bot):
+        """A DM with no recognisable sender key is skipped."""
+        EventType = bot.EventType
+        payload = {"text": "hello"}
+        result = bot._normalize_inbox_payload(payload, EventType.CONTACT_MSG_RECV)
+        assert result is None
+
+    def test_dm_missing_text_returns_none(self, bot):
+        """A DM with no recognisable text key is skipped."""
+        EventType = bot.EventType
+        payload = {"pubkey_prefix": "aa11"}
+        result = bot._normalize_inbox_payload(payload, EventType.CONTACT_MSG_RECV)
+        assert result is None
+
+    def test_passthrough_extra_fields(self, bot):
+        """Extra payload fields are preserved in the normalised result."""
+        EventType = bot.EventType
+        payload = {
+            "pubkey_prefix": "aa11",
+            "text": "start",
+            "sender_timestamp": 9999,
+            "SNR": 7,
+        }
+        result = bot._normalize_inbox_payload(payload, EventType.CONTACT_MSG_RECV)
+        assert result is not None
+        assert result["sender_timestamp"] == 9999
+        assert result["SNR"] == 7
+
+
+# ---------------------------------------------------------------------------
+# Tests: _make_msg_id
+# ---------------------------------------------------------------------------
+
+
+class TestMakeMsgId:
+    """_make_msg_id returns a stable, unique 16-char hex string per payload."""
+
+    def test_returns_16_char_hex(self, bot):
+        payload = {"pubkey_prefix": "aa11", "text": "start"}
+        result = bot._make_msg_id(payload)
+        assert isinstance(result, str)
+        assert len(result) == 16
+        assert all(c in "0123456789abcdef" for c in result)
+
+    def test_same_payload_gives_same_id(self, bot):
+        payload = {"pubkey_prefix": "aa11", "text": "start", "sender_timestamp": 1}
+        assert bot._make_msg_id(payload) == bot._make_msg_id(payload)
+
+    def test_different_senders_give_different_ids(self, bot):
+        p1 = {"pubkey_prefix": "aa11", "text": "start", "sender_timestamp": 1}
+        p2 = {"pubkey_prefix": "bb22", "text": "start", "sender_timestamp": 1}
+        assert bot._make_msg_id(p1) != bot._make_msg_id(p2)
+
+    def test_different_timestamps_give_different_ids(self, bot):
+        p1 = {"pubkey_prefix": "aa11", "text": "hi", "sender_timestamp": 1}
+        p2 = {"pubkey_prefix": "aa11", "text": "hi", "sender_timestamp": 2}
+        assert bot._make_msg_id(p1) != bot._make_msg_id(p2)
+
+    def test_handles_empty_payload(self, bot):
+        """An empty dict does not raise."""
+        result = bot._make_msg_id({})
+        assert isinstance(result, str) and len(result) == 16
 
 
 # ---------------------------------------------------------------------------
