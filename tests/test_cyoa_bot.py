@@ -684,10 +684,34 @@ class TestNormalizeInboxPayload:
         assert result is not None
         assert result["pubkey_prefix"] == "cc33dd44"
 
+    def test_dm_with_alternative_sender_key_pubkey(self, bot):
+        """'pubkey' is accepted as an alternative to 'pubkey_prefix'."""
+        EventType = bot.EventType
+        payload = {"pubkey": "ee55ff66", "text": "hello"}
+        result = bot._normalize_inbox_payload(payload, EventType.CONTACT_MSG_RECV)
+        assert result is not None
+        assert result["pubkey_prefix"] == "ee55ff66"
+
     def test_dm_with_alternative_text_key_msg(self, bot):
         """'msg' is accepted as an alternative to 'text'."""
         EventType = bot.EventType
         payload = {"pubkey_prefix": "aa11", "msg": "adventure"}
+        result = bot._normalize_inbox_payload(payload, EventType.CONTACT_MSG_RECV)
+        assert result is not None
+        assert result["text"] == "adventure"
+
+    def test_dm_with_alternative_text_key_message(self, bot):
+        """'message' is accepted as an alternative to 'text'."""
+        EventType = bot.EventType
+        payload = {"pubkey_prefix": "aa11", "message": "adventure"}
+        result = bot._normalize_inbox_payload(payload, EventType.CONTACT_MSG_RECV)
+        assert result is not None
+        assert result["text"] == "adventure"
+
+    def test_dm_with_alternative_text_key_body(self, bot):
+        """'body' is accepted as an alternative to 'text'."""
+        EventType = bot.EventType
+        payload = {"pubkey_prefix": "aa11", "body": "adventure"}
         result = bot._normalize_inbox_payload(payload, EventType.CONTACT_MSG_RECV)
         assert result is not None
         assert result["text"] == "adventure"
