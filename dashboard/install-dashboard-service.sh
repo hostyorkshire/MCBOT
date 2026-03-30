@@ -131,6 +131,7 @@ Wants=network-online.target
 Type=simple
 User=${DASHBOARD_USER}
 WorkingDirectory=${REPO_DIR}
+EnvironmentFile=${REPO_DIR}/.env
 ExecStart=${VENV_PYTHON} -m dashboard.app
 Restart=on-failure
 RestartSec=10
