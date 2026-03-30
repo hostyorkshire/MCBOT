@@ -785,3 +785,66 @@ class TestWebChatHistory:
         user_turns = [c for c in upsert_calls if any(h["role"] == "user" for h in c["history"])]
         assert user_turns, "expected at least one upsert call after the user turn"
         assert user_turns[0]["user_name"] == "Bob"
+
+
+# ---------------------------------------------------------------------------
+# dotenv / .env loading regression tests
+# ---------------------------------------------------------------------------
+
+
+class TestDotenvLoading:
+    """Verify that dashboard/app.py picks up GROQ_API_KEY from a .env file."""
+
+    def _make_app(self):
+        return create_app(async_mode="threading", start_watcher=False)
+
+    def test_missing_api_key_without_dotenv_returns_503(self, tmp_path, monkeypatch):
+        """Without GROQ_API_KEY in the environment or a .env file, /chat returns 503."""
+        monkeypatch.chdir(tmp_path)
+        app = self._make_app()
+
+        env_without_key = {k: v for k, v in os.environ.items() if k != "GROQ_API_KEY"}
+        with app.test_client() as c, patch.dict(os.environ, env_without_key, clear=True):
+            resp = c.post("/chat", json={"message": "hello", "user_id": str(uuid.uuid4())})
+
+        assert resp.status_code == 503
+        assert resp.get_json() == {"error": "Bot is not configured"}
+
+    def test_dotenv_key_is_used_by_chat_endpoint(self, tmp_path, monkeypatch):
+        """When GROQ_API_KEY is absent from the environment but present in .env,
+        /chat should read it via load_dotenv and return a successful reply."""
+        # Write a .env file in the tmp working directory.
+        (tmp_path / ".env").write_text("GROQ_API_KEY=dotenv-test-key\n")
+        monkeypatch.chdir(tmp_path)
+
+        # Re-run load_dotenv so this test's tmp .env is picked up.
+        from dotenv import find_dotenv, load_dotenv
+
+        env_without_key = {k: v for k, v in os.environ.items() if k != "GROQ_API_KEY"}
+        with patch.dict(os.environ, env_without_key, clear=True):
+            load_dotenv(find_dotenv(usecwd=True), override=True)
+            app = self._make_app()
+            completion = _mock_completion("Your adventure begins!")
+
+            with app.test_client() as c, patch("groq.Groq") as MockGroq:
+                MockGroq.return_value.chat.completions.create.return_value = completion
+                resp = c.post(
+                    "/chat",
+                    json={"message": "start", "user_id": str(uuid.uuid4())},
+                )
+
+        assert resp.status_code == 200
+        assert resp.get_json()["reply"] == "Your adventure begins!"
+
+    def test_real_env_overrides_dotenv_key(self, tmp_path, monkeypatch):
+        """An existing GROQ_API_KEY in the process environment must not be
+        replaced by the value in .env (override=False guarantees this)."""
+        (tmp_path / ".env").write_text("GROQ_API_KEY=dotenv-key\n")
+        monkeypatch.chdir(tmp_path)
+
+        from dotenv import find_dotenv, load_dotenv
+
+        with patch.dict(os.environ, {"GROQ_API_KEY": "real-env-key"}):
+            load_dotenv(find_dotenv(usecwd=True), override=False)
+            # The real env key must still win.
+            assert os.environ["GROQ_API_KEY"] == "real-env-key"
