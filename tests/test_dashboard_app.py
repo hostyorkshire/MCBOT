@@ -808,7 +808,9 @@ class TestDotenvLoading:
             resp = c.post("/chat", json={"message": "hello", "user_id": str(uuid.uuid4())})
 
         assert resp.status_code == 503
-        assert resp.get_json() == {"error": "Bot is not configured"}
+        body = resp.get_json()
+        assert "error" in body
+        assert "GROQ_API_KEY" in body["error"] or "not configured" in body["error"]
 
     def test_dotenv_key_is_used_by_chat_endpoint(self, tmp_path, monkeypatch):
         """When GROQ_API_KEY is absent from the environment but present in .env,
@@ -848,3 +850,80 @@ class TestDotenvLoading:
             load_dotenv(find_dotenv(usecwd=True), override=False)
             # The real env key must still win.
             assert os.environ["GROQ_API_KEY"] == "real-env-key"
+
+
+# ---------------------------------------------------------------------------
+# Tests: placeholder API key detection
+# ---------------------------------------------------------------------------
+
+
+class TestPlaceholderKeyDetection:
+    """Verify that placeholder GROQ_API_KEY values are detected and rejected."""
+
+    def _make_app(self):
+        from dashboard.app import create_app
+
+        return create_app(async_mode="threading", start_watcher=False)
+
+    def test_is_placeholder_key_detects_example_value(self):
+        """The canonical .env.example placeholder is identified as a placeholder."""
+        from dashboard.app import _is_placeholder_key
+
+        assert _is_placeholder_key("your_groq_api_key_here") is True
+
+    def test_is_placeholder_key_is_case_insensitive(self):
+        """Placeholder detection is case-insensitive."""
+        from dashboard.app import _is_placeholder_key
+
+        # All-caps variant of the canonical placeholder is also detected.
+        assert _is_placeholder_key("YOUR_GROQ_API_KEY_HERE") is True
+        assert _is_placeholder_key("YOUR_GROQ_API_KEY") is True
+
+    def test_is_placeholder_key_real_key_is_not_placeholder(self):
+        """A real-looking API key is not flagged as a placeholder."""
+        from dashboard.app import _is_placeholder_key
+
+        assert _is_placeholder_key("gsk_abc123xyz") is False
+        assert _is_placeholder_key("sk-live-abc1234") is False
+
+    def test_placeholder_key_returns_503(self):
+        """When GROQ_API_KEY is the .env.example placeholder value, /chat returns 503."""
+        app = self._make_app()
+
+        with (
+            app.test_client() as c,
+            patch.dict(os.environ, {"GROQ_API_KEY": "your_groq_api_key_here"}),
+        ):
+            resp = c.post("/chat", json={"message": "hello", "user_id": str(uuid.uuid4())})
+
+        assert resp.status_code == 503
+        body = resp.get_json()
+        assert "error" in body
+        # The error message must mention how to fix it.
+        assert "console.groq.com" in body["error"]
+
+    def test_placeholder_key_error_message_is_actionable(self):
+        """The 503 error body for a placeholder key must contain actionable guidance."""
+        app = self._make_app()
+
+        with (
+            app.test_client() as c,
+            patch.dict(os.environ, {"GROQ_API_KEY": "your_groq_api_key_here"}),
+        ):
+            resp = c.post("/chat", json={"message": "hello", "user_id": str(uuid.uuid4())})
+
+        body = resp.get_json()
+        # Must mention the .env file and/or how to get a real key.
+        assert ".env" in body["error"] or "console.groq.com" in body["error"]
+
+    def test_changeme_placeholder_returns_503(self):
+        """The CHANGEME placeholder value is also rejected."""
+        app = self._make_app()
+
+        with (
+            app.test_client() as c,
+            patch.dict(os.environ, {"GROQ_API_KEY": "CHANGEME"}),
+        ):
+            resp = c.post("/chat", json={"message": "hello", "user_id": str(uuid.uuid4())})
+
+        assert resp.status_code == 503

@@ -82,6 +82,49 @@ load_dotenv(find_dotenv(usecwd=True), override=False)
 _log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
+# Placeholder-key detection
+# ---------------------------------------------------------------------------
+# Key values that indicate the user has not replaced the example in .env.
+_PLACEHOLDER_KEY_VALUES: frozenset[str] = frozenset(
+    {
+        "your_groq_api_key_here",
+        "your-groq-api-key-here",
+        "YOUR_GROQ_API_KEY",
+        "<your-groq-api-key>",
+        "CHANGEME",
+    }
+)
+
+
+def _is_placeholder_key(value: str) -> bool:
+    """Return ``True`` if *value* looks like an unfilled .env.example placeholder."""
+    return value.strip().lower() in {v.lower() for v in _PLACEHOLDER_KEY_VALUES}
+
+
+def _warn_if_key_not_configured() -> None:
+    """Emit a startup warning when GROQ_API_KEY is absent or still a placeholder.
+
+    Called once at module load time so operators see an actionable message in
+    the journal / console immediately on startup rather than only when the first
+    web-chat request arrives.
+    """
+    key = os.getenv("GROQ_API_KEY", "")
+    if not key:
+        _log.warning(
+            "GROQ_API_KEY is not set. Web chat will be unavailable until you add "
+            "a valid key to your .env file.  Get a free key at https://console.groq.com"
+        )
+    elif _is_placeholder_key(key):
+        _log.warning(
+            "GROQ_API_KEY still contains the example placeholder value (%r). "
+            "Replace it with a real key from https://console.groq.com",
+            key,
+        )
+
+
+_warn_if_key_not_configured()
+
+# ---------------------------------------------------------------------------
 # In-memory web-chat session store
 # ---------------------------------------------------------------------------
 # Maps a client-supplied user_id (UUID string) to a deque of conversation
@@ -390,8 +433,37 @@ def web_chat():
 
     api_key = os.getenv("GROQ_API_KEY", "")
     if not api_key:
-        _log.error("web_chat: GROQ_API_KEY is not set")
-        return _cors(jsonify({"error": "Bot is not configured"})), 503
+        _log.error(
+            "web_chat: GROQ_API_KEY is not set – add a valid key from "
+            "https://console.groq.com to your .env file"
+        )
+        return _cors(
+            jsonify(
+                {
+                    "error": (
+                        "Bot is not configured. "
+                        "Set GROQ_API_KEY in your .env file "
+                        "(get a free key at https://console.groq.com)."
+                    )
+                }
+            )
+        ), 503
+    if _is_placeholder_key(api_key):
+        _log.error(
+            "web_chat: GROQ_API_KEY is still the example placeholder value – "
+            "replace it with a real key from https://console.groq.com"
+        )
+        return _cors(
+            jsonify(
+                {
+                    "error": (
+                        "Bot API key has not been configured. "
+                        "Replace the placeholder in your .env file with a real "
+                        "GROQ_API_KEY from https://console.groq.com."
+                    )
+                }
+            )
+        ), 503
 
     try:
         from groq import AuthenticationError, Groq, RateLimitError
@@ -408,8 +480,21 @@ def web_chat():
         )
         reply = completion.choices[0].message.content or ""
     except AuthenticationError:
-        _log.error("web_chat: Groq authentication failed – check GROQ_API_KEY")
-        return _cors(jsonify({"error": "Bot API key is invalid"})), 503
+        _log.error(
+            "web_chat: Groq authentication failed – GROQ_API_KEY is invalid. "
+            "Get a valid key at https://console.groq.com and update your .env file."
+        )
+        return _cors(
+            jsonify(
+                {
+                    "error": (
+                        "Bot API key is invalid. "
+                        "Update GROQ_API_KEY in your .env file "
+                        "(get a valid key at https://console.groq.com)."
+                    )
+                }
+            )
+        ), 503
     except RateLimitError:
         _log.warning("web_chat: Groq rate limit exceeded")
         return _cors(jsonify({"error": "Bot is busy, please try again shortly"})), 429

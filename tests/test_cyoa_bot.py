@@ -837,6 +837,56 @@ class TestCheckEnv:
 
 
 # ---------------------------------------------------------------------------
+# Tests: placeholder API key detection
+# ---------------------------------------------------------------------------
+
+
+class TestIsPlaceholderKey:
+    """_is_placeholder_key() must correctly identify unfilled .env.example values."""
+
+    def test_canonical_placeholder_is_detected(self, bot):
+        """The .env.example default value is recognised as a placeholder."""
+        assert bot._is_placeholder_key("your_groq_api_key_here") is True
+
+    def test_changeme_is_detected(self, bot):
+        """CHANGEME is recognised as a placeholder."""
+        assert bot._is_placeholder_key("CHANGEME") is True
+
+    def test_angle_bracket_placeholder_is_detected(self, bot):
+        """<your-groq-api-key> is recognised as a placeholder."""
+        assert bot._is_placeholder_key("<your-groq-api-key>") is True
+
+    def test_real_key_is_not_placeholder(self, bot):
+        """A realistic-looking API key is not flagged as a placeholder."""
+        assert bot._is_placeholder_key("gsk_abc123xyz456") is False
+
+    def test_empty_string_is_not_placeholder(self, bot):
+        """An empty string is not classified as a placeholder (it is simply absent)."""
+        assert bot._is_placeholder_key("") is False
+
+    def test_check_env_exits_nonzero_when_key_is_placeholder(self, bot, capsys):
+        """_check_env exits non-zero when GROQ_API_KEY is a placeholder value."""
+        with (
+            patch.object(bot, "GROQ_API_KEY", "your_groq_api_key_here"),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            bot._check_env()
+        assert exc_info.value.code != 0
+        out = capsys.readouterr().out
+        assert "PLACEHOLDER" in out or "placeholder" in out.lower()
+
+    @pytest.mark.asyncio
+    async def test_main_exits_1_when_groq_api_key_is_placeholder(self, bot):
+        """main() calls sys.exit(1) when GROQ_API_KEY is the .env.example placeholder."""
+        with (
+            patch.object(bot, "GROQ_API_KEY", "your_groq_api_key_here"),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            await bot.main([])
+        assert exc_info.value.code == 1
+
+
+# ---------------------------------------------------------------------------
 # Tests: main() startup validation
 # ---------------------------------------------------------------------------
 
