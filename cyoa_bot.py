@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import glob
+import hashlib
 import logging
 import os
 import random
@@ -426,6 +427,100 @@ _DRAIN_CANDIDATES: tuple[str, ...] = (
     "inbox",
 )
 
+# Cross-session dedup cache for inbox drain.  Messages added here are not
+# reprocessed on subsequent MESSAGES_WAITING cycles (prevents infinite loops
+# when the firmware does not clear the inbox after get_msg()).
+_SEEN_MSG_IDS: set[str] = set()
+_SEEN_MSG_MAX: int = 200  # cap size to prevent unbounded growth
+
+
+def _make_msg_id(payload: dict) -> str:
+    """Return a short stable hash for *payload* used for cross-session dedup.
+
+    The hash is computed over a sorted subset of payload fields that uniquely
+    identify a message: ``pubkey_prefix``, ``sender_timestamp``, and ``text``.
+    Falling back to a full repr-hash ensures any payload shape produces a
+    stable key.
+
+    Args:
+        payload: Raw or normalised message payload dict.
+
+    Returns:
+        16-character hex string.
+    """
+    try:
+        # Use fields that together uniquely identify a single message.
+        key = repr(
+            (
+                payload.get("pubkey_prefix", ""),
+                payload.get("sender_timestamp", ""),
+                payload.get("text", ""),
+            )
+        )
+    except Exception:
+        key = repr(payload)
+    return hashlib.sha256(key.encode()).hexdigest()[:16]
+
+
+def _normalize_inbox_payload(raw_payload: dict, event_type: object) -> dict | None:
+    """Normalize a raw ``get_msg()`` payload to the shape expected by ``handle_message``.
+
+    Only direct messages (``EventType.CONTACT_MSG_RECV``) are considered
+    processable.  Channel messages, error responses, and any other event types
+    are skipped with a DEBUG log so they do not cause infinite
+    ``MESSAGES_WAITING`` loops.
+
+    Alternative key names for the sender identity and message body are tried in
+    order so the function is robust against minor MeshCore firmware variations.
+
+    Args:
+        raw_payload: ``event.payload`` dict from ``get_msg()``.
+        event_type: ``event.type`` value (an :class:`~meshcore.EventType` member).
+
+    Returns:
+        A dict guaranteed to contain non-empty ``pubkey_prefix`` and ``text``
+        keys (plus any other fields from *raw_payload*), or ``None`` if the
+        payload cannot be recognised as a processable DM.
+    """
+    if event_type != EventType.CONTACT_MSG_RECV:
+        log.debug(
+            "Inbox drain: skipping non-DM event (type=%s, keys=%s)",
+            event_type,
+            list(raw_payload.keys()) if isinstance(raw_payload, dict) else type(raw_payload).__name__,
+        )
+        return None
+
+    # Try common alternative key names for the sender identity.
+    pubkey_prefix = ""
+    for key in ("pubkey_prefix", "pubkey", "from", "sender", "src"):
+        val = raw_payload.get(key, "")
+        if val:
+            pubkey_prefix = str(val)
+            break
+
+    # Try common alternative key names for the message text.
+    text = ""
+    for key in ("text", "msg", "message", "body"):
+        val = raw_payload.get(key, "")
+        if val:
+            text = str(val)
+            break
+
+    if not pubkey_prefix or not text:
+        log.debug(
+            "Inbox drain: DM payload missing sender or text (keys=%s)",
+            list(raw_payload.keys()),
+        )
+        return None
+
+    snippet = text[:40] + ("…" if len(text) > 40 else "")
+    log.info(
+        "Inbox drain: DM normalized – pubkey_prefix=%s snippet=%r",
+        pubkey_prefix,
+        snippet,
+    )
+    return {**raw_payload, "pubkey_prefix": pubkey_prefix, "text": text}
+
 
 def _normalise_drain_result(result: object) -> list[dict]:
     """Convert the raw return value of a drain method to a list of payload dicts.
@@ -476,9 +571,14 @@ async def _drain_inbox(commands: object) -> list[dict]:
     """Drain queued inbox messages and return normalised payloads.
 
     Tries ``mc.commands.get_msg()`` first (meshcore 2.2.x+): repeatedly calls
-    it until an :attr:`~meshcore.EventType.NO_MORE_MSGS` event is received,
-    deduplicating payloads within the same drain session to guard against any
-    firmware that may echo the same event twice.
+    it until an :attr:`~meshcore.EventType.NO_MORE_MSGS` event is received.
+    Non-DM events (channel messages, errors, etc.) are skipped via
+    :func:`_normalize_inbox_payload`.
+
+    A module-level ``_SEEN_MSG_IDS`` cache deduplicates across drain sessions
+    so that firmware which does not clear the inbox after ``get_msg()`` does
+    not cause an infinite ``MESSAGES_WAITING`` loop.  Within a single drain
+    session the same payload is also deduplicated.
 
     Falls back to :data:`_DRAIN_CANDIDATES` (bulk-drain methods present in
     older meshcore builds) when ``get_msg`` is not available.
@@ -491,6 +591,8 @@ async def _drain_inbox(commands: object) -> list[dict]:
         List of normalised payload dicts with at least ``pubkey_prefix`` and
         ``text`` keys.
     """
+    global _SEEN_MSG_IDS  # we mutate the module-level set
+
     # ------------------------------------------------------------------
     # meshcore 2.2.x+: iterative get_msg() drain
     # ------------------------------------------------------------------
@@ -498,7 +600,7 @@ async def _drain_inbox(commands: object) -> list[dict]:
     if get_msg is not None:
         log.info("Draining inbox via mc.commands.get_msg() loop (meshcore 2.2.x+)")
         payloads: list[dict] = []
-        seen: set[tuple[str, str]] = set()
+        seen_this_session: set[str] = set()
         while True:
             try:
                 event = await get_msg()
@@ -515,14 +617,25 @@ async def _drain_inbox(commands: object) -> list[dict]:
             raw_payload = getattr(event, "payload", None)
             if not isinstance(raw_payload, dict):
                 continue
-            pk: str = raw_payload.get("pubkey_prefix", "")
-            txt: str = raw_payload.get("text", "")
-            dedup_key = (pk, txt)
-            if dedup_key in seen:
-                log.debug("Skipping duplicate get_msg() payload from %s: %r", pk, txt)
+
+            # Build a cross-session dedup key before normalization so that
+            # unrecognised/non-DM payloads are also tracked and won't loop.
+            msg_id = _make_msg_id(raw_payload)
+            if msg_id in _SEEN_MSG_IDS or msg_id in seen_this_session:
+                log.debug("Inbox drain: skipping already-seen msg id=%s", msg_id)
                 continue
-            seen.add(dedup_key)
-            payloads.append({**raw_payload, "pubkey_prefix": pk, "text": txt})
+            seen_this_session.add(msg_id)
+            # Always register in the cross-session cache so that messages we
+            # cannot normalise (e.g. channel msgs, error payloads) do not
+            # keep cycling via repeated MESSAGES_WAITING events.
+            if len(_SEEN_MSG_IDS) >= _SEEN_MSG_MAX:
+                _SEEN_MSG_IDS.clear()
+            _SEEN_MSG_IDS.add(msg_id)
+
+            normalized = _normalize_inbox_payload(raw_payload, event_type)
+            if normalized is None:
+                continue
+            payloads.append(normalized)
         return payloads
 
     # ------------------------------------------------------------------
