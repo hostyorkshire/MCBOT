@@ -94,11 +94,15 @@ _PLACEHOLDER_KEY_VALUES: frozenset[str] = frozenset(
         "CHANGEME",
     }
 )
+# Pre-computed lowercase set for O(1) case-insensitive membership tests.
+_PLACEHOLDER_KEY_VALUES_LOWER: frozenset[str] = frozenset(
+    v.lower() for v in _PLACEHOLDER_KEY_VALUES
+)
 
 
 def _is_placeholder_key(value: str) -> bool:
     """Return ``True`` if *value* looks like an unfilled .env.example placeholder."""
-    return value.strip().lower() in {v.lower() for v in _PLACEHOLDER_KEY_VALUES}
+    return value.strip().lower() in _PLACEHOLDER_KEY_VALUES_LOWER
 
 
 def _warn_if_key_not_configured() -> None:
