@@ -70,6 +70,12 @@ python -m dashboard.app
 > Always start the dashboard with `python -m dashboard.app` or
 > `bash dashboard/start-dashboard.sh`.
 
+> 💡 **`.env` is loaded automatically.**  `dashboard/app.py` calls
+> `load_dotenv` at startup so `GROQ_API_KEY` (and other variables) set in the
+> repo-root `.env` file (written by `setup.sh`) are available without any extra
+> `export`.  Variables already present in the process environment (e.g. from a
+> systemd `EnvironmentFile=`) always take precedence over `.env` values.
+
 Open **http://localhost:5000/dashboard/** in your browser on the host machine, or
 use the host machine's IP address to access the dashboard from another device on
 the same network (e.g. **http://192.168.1.10:5000/dashboard/**).

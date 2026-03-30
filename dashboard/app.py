@@ -65,6 +65,7 @@ if _argv0 in ("flask", "flask.exe") and "run" in sys.argv[1:]:
 
 import time as _time  # noqa: E402
 
+from dotenv import find_dotenv, load_dotenv  # noqa: E402
 from flask import Blueprint, Flask, jsonify, render_template, request  # noqa: E402
 from flask_socketio import SocketIO  # noqa: E402
 
@@ -72,6 +73,11 @@ from dashboard.active_stories import STORIES_FILE as ACTIVE_STORIES_FILE  # noqa
 from dashboard.active_stories import load_stories  # noqa: E402
 from dashboard.active_stories import upsert_story as _upsert_story  # noqa: E402
 from dashboard.state import STATE_FILE, get_session, get_sessions, get_status  # noqa: E402
+
+# Load .env from the repo root (or nearest parent) if present.
+# override=False means real environment variables (e.g. from systemd
+# EnvironmentFile) always take precedence over values in .env.
+load_dotenv(find_dotenv(usecwd=True), override=False)
 
 _log = logging.getLogger(__name__)
 
