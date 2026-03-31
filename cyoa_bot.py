@@ -130,6 +130,29 @@ SEND_RETRIES: int = int(os.getenv("SEND_RETRIES", "3"))
 SEND_RETRY_BASE_DELAY: float = float(os.getenv("SEND_RETRY_BASE_DELAY", "0.5"))
 SEND_RETRY_MAX_DELAY: float = float(os.getenv("SEND_RETRY_MAX_DELAY", "3.0"))
 
+# ---------------------------------------------------------------------------
+# Placeholder-key detection
+# ---------------------------------------------------------------------------
+_PLACEHOLDER_KEY_VALUES: frozenset[str] = frozenset(
+    {
+        "your_groq_api_key_here",
+        "your-groq-api-key-here",
+        "YOUR_GROQ_API_KEY",
+        "<your-groq-api-key>",
+        "CHANGEME",
+    }
+)
+# Pre-computed lowercase set for O(1) case-insensitive membership tests.
+_PLACEHOLDER_KEY_VALUES_LOWER: frozenset[str] = frozenset(
+    v.lower() for v in _PLACEHOLDER_KEY_VALUES
+)
+
+
+def _is_placeholder_key(value: str) -> bool:
+    """Return ``True`` if *value* looks like an unfilled .env.example placeholder."""
+    return value.strip().lower() in _PLACEHOLDER_KEY_VALUES_LOWER
+
+
 HELP_TEXT: str = (
     "Commands:\n"
     "- help / ? \u2014 show this message\n"
@@ -691,7 +714,11 @@ def _check_env() -> None:
         )
         if value:
             if treat_as_secret:
-                status = f"SET (length {len(value)})"
+                if _is_placeholder_key(value):
+                    status = "PLACEHOLDER ✗ (replace with a real key)"
+                    all_ok = False
+                else:
+                    status = f"SET (length {len(value)})"
             else:
                 status = f"SET ({value})"
         else:
@@ -699,7 +726,11 @@ def _check_env() -> None:
             all_ok = False
         print(f"  {name}: {status}")
     if not all_ok:
-        print("\n✗ One or more required variables are missing. Edit your .env file.")
+        print(
+            "\n✗ One or more required variables are missing or have placeholder values.\n"
+            "  Edit your .env file and set GROQ_API_KEY to a real key from "
+            "https://console.groq.com"
+        )
         raise SystemExit(1)
     print("\n✓ All required variables are set.")
     raise SystemExit(0)
@@ -991,6 +1022,14 @@ async def main(argv: list[str] | None = None) -> None:
         log.error(
             "GROQ_API_KEY environment variable is not set or empty. "
             "Get a free key at https://console.groq.com and add it to .env."
+        )
+        sys.exit(1)
+
+    if _is_placeholder_key(GROQ_API_KEY):
+        log.error(
+            "GROQ_API_KEY is still the example placeholder value (%r). "
+            "Replace it with a real key from https://console.groq.com",
+            GROQ_API_KEY,
         )
         sys.exit(1)
 
