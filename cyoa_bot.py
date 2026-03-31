@@ -10,7 +10,7 @@ async def handle_message(event) -> None:  # type: ignore[type-arg]
 
     # Look up a friendly name for the sender.
     contact = mc.get_contact_by_key_prefix(pubkey_prefix)
-    
+
     # If contact doesn't exist, try to add them automatically
     if not contact:
         try:
@@ -22,7 +22,7 @@ async def handle_message(event) -> None:  # type: ignore[type-arg]
             contact = mc.get_contact_by_key_prefix(pubkey_prefix)
         except Exception as exc:
             log.warning("Failed to auto-add contact %s: %s", pubkey_prefix, exc)
-    
+
     user_name: str = (
         contact.get("adv_name", "Adventurer").strip() or "Adventurer"
         if contact
